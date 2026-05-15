@@ -1,11 +1,10 @@
 package p2p
 
-import "io"
-
-type Peer interface{}
+type Peer interface {
+	Close() error
+}
 
 type Transport interface {
 	ListenAndAccept() error
-	Handshake(Peer) error
-	Decode(r io.Reader, m *Message) error
+	Consume() <-chan RPC
 }
