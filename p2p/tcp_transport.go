@@ -20,8 +20,13 @@ func NewTCPPeer(conn net.Conn, outbound bool) Peer {
 	}
 }
 
-func (p *TCPPeer) Address() net.Addr {
+func (p *TCPPeer) RemoteAddr() net.Addr {
 	return p.conn.RemoteAddr()
+}
+
+func (p *TCPPeer) Send(b []byte) error {
+	_, err := p.conn.Write(b)
+	return err
 }
 
 func (p *TCPPeer) Close() error {

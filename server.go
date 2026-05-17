@@ -55,8 +55,8 @@ func (fServer *FileServer) OnPeer(p p2p.Peer) error {
 	fServer.peerLock.Lock()
 	defer fServer.peerLock.Unlock()
 
-	fServer.peers[p.Address().String()] = p
-	log.Println("remote peer added: ", p.Address().String())
+	fServer.peers[p.RemoteAddr().String()] = p
+	log.Println("remote peer added: ", p.RemoteAddr().String())
 
 	return nil
 }
