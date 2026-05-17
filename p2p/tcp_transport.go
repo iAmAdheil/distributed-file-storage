@@ -1,7 +1,9 @@
 package p2p
 
 import (
+	"errors"
 	"fmt"
+	"log"
 	"net"
 	"sync"
 )
@@ -38,8 +40,8 @@ type TCPTransport struct {
 	peers map[net.Addr]Peer
 }
 
-func NewTCPTransport(opts TCPTransportOpts) TCPTransport {
-	return TCPTransport{
+func NewTCPTransport(opts TCPTransportOpts) *TCPTransport {
+	return &TCPTransport{
 		TCPTransportOpts: opts,
 		rpcch:            make(chan RPC),
 	}
@@ -64,12 +66,19 @@ func (t *TCPTransport) ListenAndAccept() error {
 	return nil
 }
 
+func (t *TCPTransport) Close() error {
+	return t.listener.Close()
+}
+
 // go routine wakes up to accept connections, call connection handling routine and then sleep
 func (t *TCPTransport) startAndAcceptLoop() {
 	for {
 		conn, err := t.listener.Accept()
+		if errors.Is(err, net.ErrClosed) {
+			return
+		}
 		if err != nil {
-			continue
+			log.Println("TCP accept error:", err)
 		}
 		go t.handleConn(conn)
 	}
@@ -78,21 +87,21 @@ func (t *TCPTransport) startAndAcceptLoop() {
 func (t *TCPTransport) handleConn(conn net.Conn) {
 	var err error
 	defer func() {
-		fmt.Println("dropping connection:", err)
+		log.Println("dropping connection: %s", err)
 		conn.Close()
 	}()
 
 	peer := NewTCPPeer(conn, false)
-	fmt.Println("new incoming connection:", peer)
+	log.Println("new incoming connection:", peer)
 
 	if err = t.Handshake(peer); err != nil {
-		fmt.Println("TCP handshake failed:", err)
+		log.Println("TCP handshake failed:", err)
 		return
 	}
 
 	if t.OnPeer(peer) != nil {
 		if err = t.OnPeer(peer); err != nil {
-			fmt.Println("TCP peer error:", err)
+			log.Println("TCP peer error:", err)
 			return
 		}
 	}
@@ -101,7 +110,7 @@ func (t *TCPTransport) handleConn(conn net.Conn) {
 	rpc := RPC{}
 	for {
 		if err := t.Decoder.Decode(conn, &rpc); err != nil {
-			fmt.Println("TCP error:", err)
+			log.Println("TCP error:", err)
 			return
 		}
 

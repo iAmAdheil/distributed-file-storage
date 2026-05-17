@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/iAmAdheil/distributed-file-storage/p2p"
 )
@@ -13,24 +14,29 @@ func OnPeerFunc(peer p2p.Peer) error {
 }
 
 func main() {
-	opts := p2p.TCPTransportOpts{
+	tcpTransportOpts := p2p.TCPTransportOpts{
 		ListenAddress: ":3000",
 		Handshake:     p2p.NOPHandshakeFunc,
 		Decoder:       p2p.DefaultDecoder{},
-		OnPeer:        OnPeerFunc,
+		// OnPeer:        OnPeerFunc,
 	}
-	tr := p2p.NewTCPTransport(opts)
+	storeOpts := StoreOpts{
+		PathTransformFunc: CASPathTransformFunc,
+	}
 
-	if err := tr.ListenAndAccept(); err != nil {
-		log.Fatal("some tcp error ahhhh:", err)
+	fileServerOpts := FileServerOpts{
+		TCPTransportOpts: tcpTransportOpts,
+		StoreOpts:        storeOpts,
 	}
+
+	server := NewFileServer(fileServerOpts)
 
 	go func() {
-		for {
-			msg := <-tr.Consume()
-			fmt.Printf("received message: %v\n", msg)
-		}
+		time.Sleep(3 * time.Second)
+		server.Stop()
 	}()
 
-	select {}
+	if err := server.Start(); err != nil {
+		log.Fatal("server start failed:", err)
+	}
 }

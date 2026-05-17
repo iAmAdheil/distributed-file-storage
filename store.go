@@ -93,7 +93,7 @@ func (s *Store) Delete(key string) error {
 	pathKey := s.StoreOpts.PathTransformFunc(key)
 
 	defer func() {
-		fmt.Printf("deleted [%s] from disk\n", pathKey.Filename)
+		log.Printf("deleted [%s] from disk\n", pathKey.Filename)
 	}()
 
 	deletePath := s.Root + "/" + pathKey.FirstPathName()
