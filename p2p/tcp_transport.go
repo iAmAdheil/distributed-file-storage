@@ -13,15 +13,19 @@ type TCPPeer struct {
 	outbound bool
 }
 
-func NewTCPPeer(conn net.Conn, outbound bool) TCPPeer {
-	return TCPPeer{
+func NewTCPPeer(conn net.Conn, outbound bool) Peer {
+	return &TCPPeer{
 		conn:     conn,
 		outbound: outbound,
 	}
 }
 
-func (t TCPPeer) Close() error {
-	return t.conn.Close()
+func (p *TCPPeer) Address() net.Addr {
+	return p.conn.RemoteAddr()
+}
+
+func (p *TCPPeer) Close() error {
+	return p.conn.Close()
 }
 
 type TCPTransportOpts struct {
@@ -70,6 +74,18 @@ func (t *TCPTransport) Close() error {
 	return t.listener.Close()
 }
 
+func (t *TCPTransport) Dial(addr string) error {
+	log.Println("dialing peer: ", addr)
+
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return err
+	}
+
+	go t.handleConn(conn, false)
+	return nil
+}
+
 // go routine wakes up to accept connections, call connection handling routine and then sleep
 func (t *TCPTransport) startAndAcceptLoop() {
 	for {
@@ -78,30 +94,29 @@ func (t *TCPTransport) startAndAcceptLoop() {
 			return
 		}
 		if err != nil {
-			log.Println("TCP accept error:", err)
+			log.Println("TCP accept error: ", err)
 		}
-		go t.handleConn(conn)
+		go t.handleConn(conn, true)
 	}
 }
 
-func (t *TCPTransport) handleConn(conn net.Conn) {
+func (t *TCPTransport) handleConn(conn net.Conn, outbound bool) {
 	var err error
 	defer func() {
-		log.Println("dropping connection: %s", err)
+		log.Println("dropping connection: ", err)
 		conn.Close()
 	}()
 
 	peer := NewTCPPeer(conn, false)
-	log.Println("new incoming connection:", peer)
 
 	if err = t.Handshake(peer); err != nil {
-		log.Println("TCP handshake failed:", err)
+		log.Println("TCP handshake failed: ", err)
 		return
 	}
 
-	if t.OnPeer(peer) != nil {
+	if t.OnPeer != nil {
 		if err = t.OnPeer(peer); err != nil {
-			log.Println("TCP peer error:", err)
+			log.Println("TCP peer error: ", err)
 			return
 		}
 	}
@@ -110,7 +125,7 @@ func (t *TCPTransport) handleConn(conn net.Conn) {
 	rpc := RPC{}
 	for {
 		if err := t.Decoder.Decode(conn, &rpc); err != nil {
-			log.Println("TCP error:", err)
+			log.Println("TCP error: ", err)
 			return
 		}
 
