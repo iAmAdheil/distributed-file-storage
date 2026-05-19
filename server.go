@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/gob"
+	"fmt"
 	"io"
 	"log"
 	"sync"
@@ -12,28 +13,52 @@ import (
 )
 
 type Message struct {
-	From    string
+	// From    string
 	Payload any
 }
 
-func (fServer *FileServer) broadcast(m *Message) error {
-	peers := []io.Writer{}
-	for _, peer := range fServer.peers {
-		peers = append(peers, peer)
-	}
-	mw := io.MultiWriter(peers...)
-	return gob.NewEncoder(mw).Encode(*m)
+type MessageStoreFile struct {
+	Key  string
+	Size int64
 }
 
-func (fServer *FileServer) StoreData(key string, r io.Reader) error {
-	// buf := new(bytes.Buffer)
-	// tee := io.TeeReader(r, buf)
+// func (fServer *FileServer) broadcast(m *Message) error {
+// 	peers := []io.Writer{}
+// 	for _, peer := range fServer.peers {
+// 		peers = append(peers, peer)
+// 	}
+// 	mw := io.MultiWriter(peers...)
+// 	return gob.NewEncoder(mw).Encode(*m)
+// }
 
+func (fServer *FileServer) StoreData(key string, r io.Reader) error {
 	buf := new(bytes.Buffer)
-	msg := Message{
-		Payload: []byte("storagekey"),
+	tee := io.TeeReader(r, buf)
+
+	size, err := fServer.store.Write(key, tee)
+	if err != nil {
+		return err
 	}
-	gob.NewEncoder(buf).Encode(msg)
+
+	msgBuf := new(bytes.Buffer)
+	msg := Message{
+		Payload: MessageStoreFile{
+			Key:  key,
+			Size: size,
+		},
+	}
+	if err := gob.NewEncoder(msgBuf).Encode(msg); err != nil {
+		log.Println("err whend decoding message: ", err)
+		return err
+	}
+
+	for _, peer := range fServer.peers {
+		if err := peer.Send(msgBuf.Bytes()); err != nil {
+			return err
+		}
+	}
+
+	time.Sleep(time.Second * 3)
 
 	for _, peer := range fServer.peers {
 		if err := peer.Send(buf.Bytes()); err != nil {
@@ -41,30 +66,7 @@ func (fServer *FileServer) StoreData(key string, r io.Reader) error {
 		}
 	}
 
-	time.Sleep(time.Second * 3)
-
-	data := []byte("THIS IS A LARGE FILE")
-	for _, peer := range fServer.peers {
-		if err := peer.Send(data); err != nil {
-			return err
-		}
-	}
-
 	return nil
-
-	// if err := fServer.store.Write(key, tee); err != nil {
-	// 	return err
-	// }
-
-	// p := DataMessage{
-	// 	Key:  key,
-	// 	Data: buf.Bytes(),
-	// }
-
-	// return fServer.broadcast(&Message{
-	// 	From:    "todo",
-	// 	Payload: p,
-	// })
 }
 
 type FileServerOpts struct {
@@ -126,16 +128,11 @@ func (fServer *FileServer) loop() {
 			if err := gob.NewDecoder(bytes.NewReader(rpc.Payload)).Decode(&m); err != nil {
 				log.Println("error when decoding message: ", err)
 			}
-			log.Println("received message: ", string(m.Payload.([]byte)))
 
-			buf := make([]byte, 1000)
-			peer := fServer.peers[rpc.From]
-			if _, err := peer.Read(buf); err != nil {
-				log.Println("error when reading large data: ", err)
+			if err := fServer.handleMessage(rpc.From, m); err != nil {
+				log.Println("some error during message handling: ", err)
+				return
 			}
-
-			log.Println("received message: ", string(string(buf)))
-			peer.(*p2p.TCPPeer).Wg.Done()
 
 		case <-fServer.quitch:
 			return
@@ -143,13 +140,30 @@ func (fServer *FileServer) loop() {
 	}
 }
 
-// func handleMessage(rpc *p2p.RPC) {
-// 	var m *Message
-// 	if err := gob.NewDecoder(bytes.NewReader(rpc.Payload)).Decode(&m); err != nil {
-// 		log.Println("error when decoding message: ", err)
-// 	}
-// 	log.Println("received message: ", string(m.Payload.([]byte)))
-// }
+func (fServer *FileServer) handleMessage(from string, m *Message) error {
+	switch payload := m.Payload.(type) {
+	case MessageStoreFile:
+		if err := fServer.handleMessageStoreFile(from, &payload); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (fServer *FileServer) handleMessageStoreFile(from string, m *MessageStoreFile) error {
+	peer, ok := fServer.peers[from]
+	defer peer.(*p2p.TCPPeer).Wg.Done()
+
+	if !ok {
+		return fmt.Errorf("peer [%s] not found in server peer map", from)
+	}
+
+	if _, err := fServer.store.Write(m.Key, io.LimitReader(peer, m.Size)); err != nil {
+		return err
+	}
+
+	return nil
+}
 
 func (fServer *FileServer) bootstrapNodes() {
 	for _, addr := range fServer.BootStrapNodes {
@@ -176,4 +190,8 @@ func (fServer *FileServer) OnPeer(p p2p.Peer) error {
 	log.Println("remote peer added: ", p.RemoteAddr().String())
 
 	return nil
+}
+
+func init() {
+	gob.Register(MessageStoreFile{})
 }
