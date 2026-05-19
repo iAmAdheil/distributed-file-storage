@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/iAmAdheil/distributed-file-storage/p2p"
 )
@@ -51,7 +53,18 @@ func main() {
 		}
 	}()
 
-	if err := s2.Start(); err != nil {
-		log.Fatal("server start failed:", err)
-	}
+	time.Sleep(1 * time.Second)
+
+	go func() {
+		if err := s2.Start(); err != nil {
+			log.Fatal("server start failed:", err)
+		}
+	}()
+
+	time.Sleep(1 * time.Second)
+
+	data := []byte("this is my private data")
+	s2.StoreData("myprivatedata", bytes.NewReader(data))
+
+	select {}
 }
