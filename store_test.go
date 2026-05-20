@@ -34,9 +34,11 @@ func TestStore(t *testing.T) {
 
 	for i := 0; i < 50; i++ {
 		key := key_pref + "_" + strconv.Itoa(i)
-		data := bytes.NewReader([]byte("The pagani huayra is my favourite car"))
+		data := []byte("The pagani huayra is my favourite car")
+		dataReader := bytes.NewReader(data)
+		size := int64(len(data))
 
-		if _, err := store.Write(key, io.LimitReader(data, 37)); err != nil {
+		if _, err := store.Write(key, io.LimitReader(dataReader, size)); err != nil {
 			t.Errorf("expected no error, got %v\n", err)
 			return
 		}

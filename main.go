@@ -64,7 +64,7 @@ func main() {
 	time.Sleep(1 * time.Second)
 
 	data := []byte("this is my private data")
-	s2.StoreData("myprivatedata", bytes.NewReader(data))
+	s2.Store("myprivatedata", bytes.NewReader(data))
 
 	select {}
 }

@@ -129,6 +129,7 @@ func (t *TCPTransport) handleConn(conn net.Conn) {
 		}
 
 		rpc.From = conn.RemoteAddr().String()
+
 		peer.Wg.Add(1)
 		t.rpcch <- rpc
 		fmt.Println("waiting for stream to end")

@@ -13,8 +13,36 @@ import (
 )
 
 type Message struct {
-	// From    string
 	Payload any
+}
+
+func (fServer *FileServer) stream(m *Message) error {
+	peers := []io.Writer{}
+	for _, peer := range fServer.peers {
+		peers = append(peers, peer)
+	}
+	mw := io.MultiWriter(peers...)
+	return gob.NewEncoder(mw).Encode(*m)
+}
+
+func (fServer *FileServer) broadcast(msg *Message) error {
+	buf := new(bytes.Buffer)
+	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
+		log.Println("err whend decoding message: ", err)
+		return err
+	}
+
+	for _, peer := range fServer.peers {
+		if err := peer.Send(buf.Bytes()); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+type MessageGetFile struct {
+	Key string
 }
 
 type MessageStoreFile struct {
@@ -22,46 +50,69 @@ type MessageStoreFile struct {
 	Size int64
 }
 
-// func (fServer *FileServer) broadcast(m *Message) error {
-// 	peers := []io.Writer{}
-// 	for _, peer := range fServer.peers {
-// 		peers = append(peers, peer)
-// 	}
-// 	mw := io.MultiWriter(peers...)
-// 	return gob.NewEncoder(mw).Encode(*m)
-// }
+// Currently check if file exists locally, if not stream it from another peer
+// Ideally ask peers with the stored file, then choose one peer to stream it
+// and then listen for data stream from that peer
+func (fServer *FileServer) Get(key string) (io.Reader, error) {
+	ok := fServer.store.Has(key)
+	if !ok {
+		r, err := fServer.store.Read(key)
+		if err != nil {
+			return r, err
+		}
+	}
 
-func (fServer *FileServer) StoreData(key string, r io.Reader) error {
-	buf := new(bytes.Buffer)
-	tee := io.TeeReader(r, buf)
+	msg := Message{
+		Payload: MessageGetFile{
+			Key: key,
+		},
+	}
+
+	if err := fServer.broadcast(&msg); err != nil {
+		return nil, err
+	}
+
+	time.Sleep(time.Second * 3)
+
+	for _, peer := range fServer.peers {
+		fileBuffer := new(bytes.Buffer)
+		_, err := io.Copy(fileBuffer, peer)
+		if err != nil {
+			// return nil, err
+			continue
+		}
+		return fileBuffer, nil
+	}
+
+	return nil, nil
+}
+
+func (fServer *FileServer) Store(key string, r io.Reader) error {
+	var (
+		fileBuf = new(bytes.Buffer)
+		tee     = io.TeeReader(r, fileBuf)
+	)
 
 	size, err := fServer.store.Write(key, tee)
 	if err != nil {
 		return err
 	}
 
-	msgBuf := new(bytes.Buffer)
 	msg := Message{
 		Payload: MessageStoreFile{
 			Key:  key,
 			Size: size,
 		},
 	}
-	if err := gob.NewEncoder(msgBuf).Encode(msg); err != nil {
-		log.Println("err whend decoding message: ", err)
-		return err
-	}
 
-	for _, peer := range fServer.peers {
-		if err := peer.Send(msgBuf.Bytes()); err != nil {
-			return err
-		}
+	if err := fServer.broadcast(&msg); err != nil {
+		return err
 	}
 
 	time.Sleep(time.Second * 3)
 
 	for _, peer := range fServer.peers {
-		if err := peer.Send(buf.Bytes()); err != nil {
+		if err := peer.Send(fileBuf.Bytes()); err != nil {
 			return err
 		}
 	}
@@ -144,9 +195,33 @@ func (fServer *FileServer) handleMessage(from string, m *Message) error {
 	switch payload := m.Payload.(type) {
 	case MessageStoreFile:
 		if err := fServer.handleMessageStoreFile(from, &payload); err != nil {
-			return err
+			log.Println("error when storing streamed data: ", err)
+		}
+	case MessageGetFile:
+		if err := fServer.handleMessageGetFile(from, &payload); err != nil {
+			log.Println("error when streaming stored data: ", err)
 		}
 	}
+
+	return nil
+}
+
+func (fServer *FileServer) handleMessageGetFile(from string, m *MessageGetFile) error {
+	r, err := fServer.store.Read(m.Key)
+	if err != nil {
+		return err
+	}
+
+	peer, ok := fServer.peers[from]
+	if !ok {
+		return fmt.Errorf("peer %s not found in peer map", from)
+	}
+
+	_, err = io.Copy(peer, r)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -194,4 +269,5 @@ func (fServer *FileServer) OnPeer(p p2p.Peer) error {
 
 func init() {
 	gob.Register(MessageStoreFile{})
+	gob.Register(MessageGetFile{})
 }
