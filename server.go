@@ -14,6 +14,7 @@ import (
 )
 
 type Message struct {
+	ID      string
 	Payload any
 }
 
@@ -59,17 +60,18 @@ type MessageStoreFile struct {
 // Ideally ask peers with the stored file, then choose one peer to stream it
 // and then listen for data stream from that peer
 func (fServer *FileServer) Get(key string) (io.Reader, error) {
-	ok := fServer.store.Has(key)
+	ok := fServer.store.Has(key, fServer.ID)
 	if ok {
-		_, r, err := fServer.store.Read(key)
+		_, r, err := fServer.store.Read(key, fServer.ID)
 		if err == nil {
 			return r, nil
 		}
 	}
 
 	msg := Message{
+		ID: fServer.ID,
 		Payload: MessageGetFile{
-			Key: key,
+			Key: hashKey(key),
 		},
 	}
 	if err := fServer.broadcast(&msg); err != nil {
@@ -81,7 +83,7 @@ func (fServer *FileServer) Get(key string) (io.Reader, error) {
 	for _, peer := range fServer.peers {
 		var fileSize int64
 		binary.Read(peer, binary.LittleEndian, &fileSize)
-		_, err := fServer.store.DWrite(fServer.EncKey, key, io.LimitReader(peer, fileSize))
+		_, err := fServer.store.DWrite(fServer.EncKey, key, fServer.ID, io.LimitReader(peer, fileSize))
 		if err != nil {
 			// return nil, err
 			continue
@@ -90,7 +92,7 @@ func (fServer *FileServer) Get(key string) (io.Reader, error) {
 		peer.CloseStream()
 	}
 
-	_, r, err := fServer.store.Read(key)
+	_, r, err := fServer.store.Read(key, fServer.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -104,14 +106,15 @@ func (fServer *FileServer) Store(key string, r io.Reader) error {
 		tee     = io.TeeReader(r, fileBuf)
 	)
 
-	size, err := fServer.store.Write(key, tee)
+	size, err := fServer.store.Write(key, fServer.ID, tee)
 	if err != nil {
 		return err
 	}
 
 	msg := Message{
+		ID: fServer.ID,
 		Payload: MessageStoreFile{
-			Key:  key,
+			Key:  hashKey(key),
 			Size: size + 16,
 		},
 	}
@@ -135,15 +138,6 @@ func (fServer *FileServer) Store(key string, r io.Reader) error {
 		return err
 	}
 
-	// for _, peer := range fServer.peers {
-	// 	if err := peer.Send([]byte{p2p.IncomingStreamByte}); err != nil {
-	// 		return err
-	// 	}
-	// 	if _, err := copyEncrypt(fServer.EncKey, fileBuf, peer); err != nil {
-	// 		return err
-	// 	}
-	// }
-
 	return nil
 }
 
@@ -153,6 +147,7 @@ type FileServerOpts struct {
 
 	EncKey         []byte
 	BootStrapNodes []string
+	ID             string
 }
 
 type FileServer struct {
@@ -219,13 +214,14 @@ func (fServer *FileServer) loop() {
 }
 
 func (fServer *FileServer) handleMessage(from string, m *Message) error {
+	id := m.ID
 	switch payload := m.Payload.(type) {
 	case MessageStoreFile:
-		if err := fServer.handleMessageStoreFile(from, &payload); err != nil {
+		if err := fServer.handleMessageStoreFile(from, id, &payload); err != nil {
 			log.Printf("[%s] error storing streamed data: %s\n", fServer.transport.Addr(), err)
 		}
 	case MessageGetFile:
-		if err := fServer.handleMessageGetFile(from, &payload); err != nil {
+		if err := fServer.handleMessageGetFile(from, id, &payload); err != nil {
 			log.Printf("[%s] error when streaming stored data: %s\n", fServer.transport.Addr(), err)
 		}
 	}
@@ -233,8 +229,8 @@ func (fServer *FileServer) handleMessage(from string, m *Message) error {
 	return nil
 }
 
-func (fServer *FileServer) handleMessageGetFile(from string, m *MessageGetFile) error {
-	fileSize, r, err := fServer.store.Read(m.Key)
+func (fServer *FileServer) handleMessageGetFile(from string, id string, m *MessageGetFile) error {
+	fileSize, r, err := fServer.store.Read(m.Key, id)
 	if err != nil {
 		return err
 	}
@@ -257,7 +253,7 @@ func (fServer *FileServer) handleMessageGetFile(from string, m *MessageGetFile) 
 	return nil
 }
 
-func (fServer *FileServer) handleMessageStoreFile(from string, m *MessageStoreFile) error {
+func (fServer *FileServer) handleMessageStoreFile(from string, id string, m *MessageStoreFile) error {
 	peer, ok := fServer.peers[from]
 	defer peer.CloseStream()
 
@@ -265,7 +261,7 @@ func (fServer *FileServer) handleMessageStoreFile(from string, m *MessageStoreFi
 		return fmt.Errorf("[%s] peer %s not found in peer map", fServer.transport.Addr(), from)
 	}
 
-	if _, err := fServer.store.Write(m.Key, io.LimitReader(peer, m.Size)); err != nil {
+	if _, err := fServer.store.Write(m.Key, id, io.LimitReader(peer, m.Size)); err != nil {
 		return err
 	}
 

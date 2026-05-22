@@ -38,17 +38,17 @@ func TestStore(t *testing.T) {
 		dataReader := bytes.NewReader(data)
 		size := int64(len(data))
 
-		if _, err := store.Write(key, io.LimitReader(dataReader, size)); err != nil {
+		if _, err := store.Write(key, "1", io.LimitReader(dataReader, size)); err != nil {
 			t.Errorf("expected no error, got %v\n", err)
 			return
 		}
 
-		if ok := store.Has(key); !ok {
+		if ok := store.Has(key, "1"); !ok {
 			t.Errorf("expected to have key %s\n", key)
 			return
 		}
 
-		_, r, err := store.Read(key)
+		_, r, err := store.Read(key, "1")
 		if err != nil {
 			t.Errorf("expected no error, got %v\n", err)
 			return
@@ -56,12 +56,12 @@ func TestStore(t *testing.T) {
 		b, err := io.ReadAll(r)
 		fmt.Printf("data in file with key %s: %s\n", key, string(b))
 
-		if err := store.Delete(key); err != nil {
+		if err := store.Delete(key, "1"); err != nil {
 			t.Errorf("path could not be deleted for key: %s\n", key)
 			return
 		}
 
-		if ok := store.Has(key); ok {
+		if ok := store.Has(key, "1"); ok {
 			t.Errorf("expected to NOT have key %s\n", key)
 			return
 		}
