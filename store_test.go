@@ -48,7 +48,7 @@ func TestStore(t *testing.T) {
 			return
 		}
 
-		r, err := store.Read(key)
+		_, r, err := store.Read(key)
 		if err != nil {
 			t.Errorf("expected no error, got %v\n", err)
 			return

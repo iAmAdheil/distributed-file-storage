@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/gob"
 	"fmt"
 	"io"
@@ -16,26 +17,30 @@ type Message struct {
 	Payload any
 }
 
-func (fServer *FileServer) stream(m *Message) error {
-	peers := []io.Writer{}
-	for _, peer := range fServer.peers {
-		peers = append(peers, peer)
-	}
-	mw := io.MultiWriter(peers...)
-	return gob.NewEncoder(mw).Encode(*m)
-}
+// func (fServer *FileServer) stream(m *Message) error {
+// 	peers := []io.Writer{}
+// 	for _, peer := range fServer.peers {
+// 		peers = append(peers, peer)
+// 	}
+// 	mw := io.MultiWriter(peers...)
+// 	return gob.NewEncoder(mw).Encode(*m)
+// }
 
 func (fServer *FileServer) broadcast(msg *Message) error {
 	buf := new(bytes.Buffer)
 	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
-		log.Println("err whend decoding message: ", err)
+		log.Printf("[%s] err when decoding message before broadcast: %s\n", fServer.transport.Addr(), err)
 		return err
 	}
 
 	for _, peer := range fServer.peers {
+		if err := peer.Send([]byte{p2p.IncomingMessageByte}); err != nil {
+			return err
+		}
 		if err := peer.Send(buf.Bytes()); err != nil {
 			return err
 		}
+		// fmt.Printf("[%s] message broadcasted to: [%s]", fServer.transport.Addr(), peer.RemoteAddr())
 	}
 
 	return nil
@@ -55,10 +60,10 @@ type MessageStoreFile struct {
 // and then listen for data stream from that peer
 func (fServer *FileServer) Get(key string) (io.Reader, error) {
 	ok := fServer.store.Has(key)
-	if !ok {
-		r, err := fServer.store.Read(key)
-		if err != nil {
-			return r, err
+	if ok {
+		_, r, err := fServer.store.Read(key)
+		if err == nil {
+			return r, nil
 		}
 	}
 
@@ -67,24 +72,30 @@ func (fServer *FileServer) Get(key string) (io.Reader, error) {
 			Key: key,
 		},
 	}
-
 	if err := fServer.broadcast(&msg); err != nil {
 		return nil, err
 	}
 
-	time.Sleep(time.Second * 3)
+	time.Sleep(5 * time.Millisecond)
 
 	for _, peer := range fServer.peers {
-		fileBuffer := new(bytes.Buffer)
-		_, err := io.Copy(fileBuffer, peer)
+		var fileSize int64
+		binary.Read(peer, binary.LittleEndian, &fileSize)
+		_, err := fServer.store.DWrite(fServer.EncKey, key, io.LimitReader(peer, fileSize))
 		if err != nil {
 			// return nil, err
 			continue
 		}
-		return fileBuffer, nil
+
+		peer.CloseStream()
 	}
 
-	return nil, nil
+	_, r, err := fServer.store.Read(key)
+	if err != nil {
+		return nil, err
+	}
+
+	return r, nil
 }
 
 func (fServer *FileServer) Store(key string, r io.Reader) error {
@@ -101,7 +112,7 @@ func (fServer *FileServer) Store(key string, r io.Reader) error {
 	msg := Message{
 		Payload: MessageStoreFile{
 			Key:  key,
-			Size: size,
+			Size: size + 16,
 		},
 	}
 
@@ -109,13 +120,29 @@ func (fServer *FileServer) Store(key string, r io.Reader) error {
 		return err
 	}
 
-	time.Sleep(time.Second * 3)
+	time.Sleep(5 * time.Millisecond)
 
+	peers := []io.Writer{}
 	for _, peer := range fServer.peers {
-		if err := peer.Send(fileBuf.Bytes()); err != nil {
-			return err
-		}
+		peers = append(peers, peer)
 	}
+	mw := io.MultiWriter(peers...)
+
+	if _, err := mw.Write([]byte{p2p.IncomingStreamByte}); err != nil {
+		return err
+	}
+	if _, err := copyEncrypt(fServer.EncKey, fileBuf, mw); err != nil {
+		return err
+	}
+
+	// for _, peer := range fServer.peers {
+	// 	if err := peer.Send([]byte{p2p.IncomingStreamByte}); err != nil {
+	// 		return err
+	// 	}
+	// 	if _, err := copyEncrypt(fServer.EncKey, fileBuf, peer); err != nil {
+	// 		return err
+	// 	}
+	// }
 
 	return nil
 }
@@ -124,14 +151,14 @@ type FileServerOpts struct {
 	StoreOpts
 	transport p2p.Transport
 
+	EncKey         []byte
 	BootStrapNodes []string
 }
 
 type FileServer struct {
 	FileServerOpts
 
-	store *Store
-
+	store    *Store
 	peerLock sync.Mutex
 	peers    map[string]p2p.Peer
 	quitch   chan struct{}
@@ -166,9 +193,9 @@ func (fServer *FileServer) Start() error {
 
 func (fServer *FileServer) loop() {
 	defer func() {
-		log.Println("server stopped by user quit action")
+		log.Printf("[%s] server stopped by user quit action\n", fServer.transport.Addr())
 		if err := fServer.transport.Close(); err != nil {
-			log.Println("TCP transport closing error:", err)
+			log.Printf("[%s] TCP transport closing error: %s\n", fServer.transport.Addr(), err)
 		}
 	}()
 
@@ -177,11 +204,11 @@ func (fServer *FileServer) loop() {
 		case rpc := <-fServer.transport.Consume():
 			var m *Message
 			if err := gob.NewDecoder(bytes.NewReader(rpc.Payload)).Decode(&m); err != nil {
-				log.Println("error when decoding message: ", err)
+				log.Printf("[%s] error decoding received message: %s\n", fServer.transport.Addr(), err)
 			}
 
 			if err := fServer.handleMessage(rpc.From, m); err != nil {
-				log.Println("some error during message handling: ", err)
+				log.Printf("[%s] error during handling message: %s\n", fServer.transport.Addr(), err)
 				return
 			}
 
@@ -195,11 +222,11 @@ func (fServer *FileServer) handleMessage(from string, m *Message) error {
 	switch payload := m.Payload.(type) {
 	case MessageStoreFile:
 		if err := fServer.handleMessageStoreFile(from, &payload); err != nil {
-			log.Println("error when storing streamed data: ", err)
+			log.Printf("[%s] error storing streamed data: %s\n", fServer.transport.Addr(), err)
 		}
 	case MessageGetFile:
 		if err := fServer.handleMessageGetFile(from, &payload); err != nil {
-			log.Println("error when streaming stored data: ", err)
+			log.Printf("[%s] error when streaming stored data: %s\n", fServer.transport.Addr(), err)
 		}
 	}
 
@@ -207,16 +234,21 @@ func (fServer *FileServer) handleMessage(from string, m *Message) error {
 }
 
 func (fServer *FileServer) handleMessageGetFile(from string, m *MessageGetFile) error {
-	r, err := fServer.store.Read(m.Key)
+	fileSize, r, err := fServer.store.Read(m.Key)
 	if err != nil {
 		return err
 	}
+	defer r.Close()
 
 	peer, ok := fServer.peers[from]
 	if !ok {
-		return fmt.Errorf("peer %s not found in peer map", from)
+		return fmt.Errorf("[%s] peer %s not found in peer map", fServer.transport.Addr(), from)
 	}
 
+	if err := peer.Send([]byte{p2p.IncomingStreamByte}); err != nil {
+		return err
+	}
+	binary.Write(peer, binary.LittleEndian, fileSize)
 	_, err = io.Copy(peer, r)
 	if err != nil {
 		return err
@@ -227,10 +259,10 @@ func (fServer *FileServer) handleMessageGetFile(from string, m *MessageGetFile) 
 
 func (fServer *FileServer) handleMessageStoreFile(from string, m *MessageStoreFile) error {
 	peer, ok := fServer.peers[from]
-	defer peer.(*p2p.TCPPeer).Wg.Done()
+	defer peer.CloseStream()
 
 	if !ok {
-		return fmt.Errorf("peer [%s] not found in server peer map", from)
+		return fmt.Errorf("[%s] peer %s not found in peer map", fServer.transport.Addr(), from)
 	}
 
 	if _, err := fServer.store.Write(m.Key, io.LimitReader(peer, m.Size)); err != nil {
@@ -247,7 +279,7 @@ func (fServer *FileServer) bootstrapNodes() {
 		}
 		go func(address string) {
 			if err := fServer.transport.Dial(address); err != nil {
-				log.Printf("error when dialing a remote node %s:, %s\n", address, err)
+				log.Printf("[%s] error when dialing a remote node %s:, %s\n", fServer.transport.Addr(), address, err)
 			}
 		}(addr)
 	}
@@ -262,7 +294,7 @@ func (fServer *FileServer) OnPeer(p p2p.Peer) error {
 	defer fServer.peerLock.Unlock()
 
 	fServer.peers[p.RemoteAddr().String()] = p
-	log.Println("remote peer added: ", p.RemoteAddr().String())
+	log.Printf("[%s] remote peer added: %s\n", fServer.transport.Addr(), p.RemoteAddr().String())
 
 	return nil
 }

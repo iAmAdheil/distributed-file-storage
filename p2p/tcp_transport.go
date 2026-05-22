@@ -22,6 +22,10 @@ func NewTCPPeer(conn net.Conn, outbound bool) *TCPPeer {
 	}
 }
 
+func (p *TCPPeer) CloseStream() {
+	p.Wg.Done()
+}
+
 func (p *TCPPeer) Send(b []byte) error {
 	_, err := p.Conn.Write(b)
 	return err
@@ -50,6 +54,10 @@ func NewTCPTransport(opts TCPTransportOpts) *TCPTransport {
 	}
 }
 
+func (t *TCPTransport) Addr() string {
+	return t.ListenAddress
+}
+
 // implements the Transport interface
 func (t *TCPTransport) Consume() <-chan RPC {
 	return t.rpcch
@@ -64,7 +72,7 @@ func (t *TCPTransport) ListenAndAccept() error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("listening on:", t.ListenAddress+", yaaay!")
+	fmt.Println("Listening on:", t.ListenAddress, ", yaaay!")
 	go t.startAndAcceptLoop()
 	return nil
 }
@@ -74,7 +82,7 @@ func (t *TCPTransport) Close() error {
 }
 
 func (t *TCPTransport) Dial(addr string) error {
-	log.Println("dialing peer: ", addr)
+	log.Printf("[%s] dialing peer: %s\n", t.ListenAddress, addr)
 
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
@@ -93,7 +101,7 @@ func (t *TCPTransport) startAndAcceptLoop() {
 			return
 		}
 		if err != nil {
-			log.Println("TCP accept error: ", err)
+			log.Printf("[%s] TCP accept error: %s\n", t.ListenAddress, err)
 		}
 		go t.handleConn(conn)
 	}
@@ -101,39 +109,42 @@ func (t *TCPTransport) startAndAcceptLoop() {
 
 func (t *TCPTransport) handleConn(conn net.Conn) {
 	var err error
+	peer := NewTCPPeer(conn, false)
+
 	defer func() {
-		log.Println("dropping connection: ", err)
+		log.Printf("[%s] dropping connection with [%s]: %s\n", t.ListenAddress, peer.RemoteAddr(), err)
 		conn.Close()
 	}()
 
-	peer := NewTCPPeer(conn, false)
-
 	if err = t.Handshake(peer); err != nil {
-		log.Println("TCP handshake failed: ", err)
+		log.Printf("[%s] TCP handshake failed with [%s]: %s\n", t.ListenAddress, peer.RemoteAddr(), err)
 		return
 	}
 
 	if t.OnPeer != nil {
 		if err = t.OnPeer(peer); err != nil {
-			log.Println("TCP peer error: ", err)
+			log.Printf("[%s] TCP peer error: %s\n", t.ListenAddress, err)
 			return
 		}
 	}
 
 	// start reading bytes in loop
-	rpc := RPC{}
 	for {
+		rpc := RPC{}
 		if err := t.Decoder.Decode(conn, &rpc); err != nil {
-			log.Println("TCP error: ", err)
+			log.Printf("[%s] TCP decoder error, sent from [%s]: %s\n", t.ListenAddress, conn.RemoteAddr(), err)
 			return
 		}
 
 		rpc.From = conn.RemoteAddr().String()
+		if rpc.Stream {
+			peer.Wg.Add(1)
+			fmt.Printf("[%s] blocked for direct streaming to server from [%s]\n", t.ListenAddress, rpc.From)
+			peer.Wg.Wait()
+			fmt.Printf("[%s] streaming complete, read loop resumes\n", t.ListenAddress)
+			continue
+		}
 
-		peer.Wg.Add(1)
 		t.rpcch <- rpc
-		fmt.Println("waiting for stream to end")
-		peer.Wg.Wait()
-		fmt.Println("normal functioning started")
 	}
 }

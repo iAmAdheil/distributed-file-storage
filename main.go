@@ -31,6 +31,7 @@ func configServer(listenaddr string, nodes []string) *FileServer {
 	tcpTransport := p2p.NewTCPTransport(tcpTransportOpts)
 
 	fileServerOpts := FileServerOpts{
+		EncKey:         newEncryptionKey(),
 		transport:      tcpTransport,
 		StoreOpts:      storeOpts,
 		BootStrapNodes: nodes,
@@ -49,7 +50,7 @@ func main() {
 
 	go func() {
 		if err := s1.Start(); err != nil {
-			log.Fatal("server start failed:", err)
+			log.Fatal("server start failed: ", err)
 		}
 	}()
 
@@ -57,14 +58,37 @@ func main() {
 
 	go func() {
 		if err := s2.Start(); err != nil {
-			log.Fatal("server start failed:", err)
+			log.Fatal("server start failed: ", err)
 		}
 	}()
 
 	time.Sleep(1 * time.Second)
 
+	// multi write test
+	// data := []byte("this is my private data")
+	// for i := 0; i < 10; i++ {
+	// 	s2.Store(fmt.Sprintf("myprivatedata_%v", i), bytes.NewReader(data))
+	// }
+
+	// single write test
+	key := "myprivatedata"
 	data := []byte("this is my private data")
-	s2.Store("myprivatedata", bytes.NewReader(data))
+	s2.Store(key, bytes.NewReader(data))
+
+	if err := s2.store.Delete(key); err != nil {
+		log.Fatal("delete failed: ", err)
+	}
+
+	// read test
+	buf := make([]byte, 1028)
+	r, err := s2.Get(key)
+	if err != nil {
+		log.Fatal("get data failed: ", err)
+	}
+	if _, err := r.Read(buf); err != nil {
+		log.Fatal("read failed: ", err)
+	}
+	fmt.Println("Data received: ", string(buf))
 
 	select {}
 }
