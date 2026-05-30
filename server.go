@@ -51,6 +51,10 @@ type MessageGetFile struct {
 	Key string
 }
 
+type MessageDeleteFile struct {
+	Key string
+}
+
 type MessageStoreFile struct {
 	Key  string
 	Size int64
@@ -141,6 +145,21 @@ func (fServer *FileServer) Store(key string, r io.Reader) error {
 	return nil
 }
 
+func (fServer *FileServer) Delete(key string) error {
+	if err := fServer.store.Delete(key, fServer.ID); err != nil {
+		return err
+	}
+
+	msg := &Message{
+		ID: fServer.ID,
+		Payload: MessageDeleteFile{
+			Key: hashKey(key),
+		},
+	}
+
+	return fServer.broadcast(msg)
+}
+
 type FileServerOpts struct {
 	StoreOpts
 	transport p2p.Transport
@@ -224,6 +243,10 @@ func (fServer *FileServer) handleMessage(from string, m *Message) error {
 		if err := fServer.handleMessageGetFile(from, id, &payload); err != nil {
 			log.Printf("[%s] error when streaming stored data: %s\n", fServer.transport.Addr(), err)
 		}
+	case MessageDeleteFile:
+		if err := fServer.handleMessageDeleteFile(from, id, &payload); err != nil {
+			log.Printf("[%s] error when streaming stored data: %s\n", fServer.transport.Addr(), err)
+		}
 	}
 
 	return nil
@@ -268,6 +291,13 @@ func (fServer *FileServer) handleMessageStoreFile(from string, id string, m *Mes
 	return nil
 }
 
+func (fServer *FileServer) handleMessageDeleteFile(from string, id string, payload *MessageDeleteFile) error {
+	if err := fServer.store.Delete(payload.Key, id); err != nil {
+		return fmt.Errorf("[%s] could delete file of key (%s) for %s", fServer.transport.Addr(), payload.Key, from)
+	}
+	return nil
+}
+
 func (fServer *FileServer) bootstrapNodes() {
 	for _, addr := range fServer.BootStrapNodes {
 		if len(addr) == 0 {
@@ -298,4 +328,5 @@ func (fServer *FileServer) OnPeer(p p2p.Peer) error {
 func init() {
 	gob.Register(MessageStoreFile{})
 	gob.Register(MessageGetFile{})
+	gob.Register(MessageDeleteFile{})
 }

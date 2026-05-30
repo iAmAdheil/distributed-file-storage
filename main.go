@@ -103,5 +103,16 @@ func main() {
 	data_2 := []byte("this is my private data for s3")
 	s3.Store(key_2, bytes.NewReader(data_2))
 
+	time.Sleep(time.Millisecond * 5)
+	err = s2.Delete(key)
+	if err != nil {
+		fmt.Printf("File deletion failed: %s\n", err)
+	}
+	time.Sleep(time.Millisecond * 5)
+	err = s3.Delete(key_2)
+	if err != nil {
+		fmt.Printf("File deletion failed: %s\n", err)
+	}
+
 	select {}
 }
