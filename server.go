@@ -164,6 +164,8 @@ func (fServer *FileServer) Delete(key string) error {
 
 type FileServerOpts struct {
 	StoreOpts
+	HttpOpts
+
 	transport p2p.Transport
 
 	EncKey         []byte
@@ -174,7 +176,9 @@ type FileServerOpts struct {
 type FileServer struct {
 	FileServerOpts
 
-	store    *Store
+	store      *Store
+	httpServer *HttpServer
+
 	peerLock sync.Mutex
 	peers    map[string]p2p.Peer
 	quitch   chan struct{}
@@ -184,7 +188,8 @@ func NewFileServer(opts FileServerOpts) *FileServer {
 	server := &FileServer{
 		FileServerOpts: opts,
 
-		store: NewStore(opts.StoreOpts),
+		store:      NewStore(opts.StoreOpts),
+		httpServer: NewHttpServer(opts.HttpOpts),
 
 		peerLock: sync.Mutex{},
 		peers:    make(map[string]p2p.Peer),
@@ -202,7 +207,9 @@ func (fServer *FileServer) Start() error {
 	if len(fServer.BootStrapNodes) > 0 {
 		fServer.bootstrapNodes()
 	}
-	fServer.loop()
+
+	go fServer.loop()
+	go fServer.httpServer.Start()
 
 	return nil
 }
@@ -316,6 +323,7 @@ func (fServer *FileServer) bootstrapNodes() {
 
 func (fServer *FileServer) Stop() {
 	close(fServer.quitch)
+	close(fServer.httpServer.Quitch)
 }
 
 func (fServer *FileServer) OnPeer(p p2p.Peer) error {
