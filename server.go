@@ -60,6 +60,8 @@ type MessageStoreFile struct {
 	Size int64
 }
 
+// Get, Store, Delete -> run on the peer that send the message
+
 // Currently check if file exists locally, if not stream it from another peer
 // Ideally ask peers with the stored file, then choose one peer to stream it
 // and then listen for data stream from that peer
@@ -232,6 +234,7 @@ func (fServer *FileServer) loop() {
 	}
 }
 
+// these methods run on the peer that received the message
 func (fServer *FileServer) handleMessage(from string, m *Message) error {
 	id := m.ID
 	switch payload := m.Payload.(type) {

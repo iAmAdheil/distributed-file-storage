@@ -2,7 +2,6 @@ package p2p
 
 import (
 	"encoding/gob"
-	"fmt"
 	"io"
 )
 
@@ -22,7 +21,6 @@ func (dec DefaultDecoder) Decode(r io.Reader, m *RPC) error {
 	peekBuf := make([]byte, 1)
 	_, err := r.Read(peekBuf)
 	if err != nil {
-		fmt.Println("ddd")
 		return err
 	}
 	if peekBuf[0] == IncomingStreamByte {

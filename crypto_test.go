@@ -6,6 +6,15 @@ import (
 	"testing"
 )
 
+func TestHashKey(t *testing.T) {
+	key := "Key2"
+	res := hashKey(key)
+	expectedRes := "c31650e34686537020ee36190e71da5b"
+	if res != expectedRes {
+		t.Error("key hashing failed")
+	}
+}
+
 func TestEncryptDecryptFunc(t *testing.T) {
 	payload := "This is a string"
 	key := newEncryptionKey()

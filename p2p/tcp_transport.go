@@ -93,7 +93,8 @@ func (t *TCPTransport) Dial(addr string) error {
 	return nil
 }
 
-// go routine wakes up to accept connections, call connection handling routine and then sleep
+// waiting for new connections in an infinite loop, accepts the incoming connection
+// invokes a new go routine that then handles the peer
 func (t *TCPTransport) startAndAcceptLoop() {
 	for {
 		conn, err := t.listener.Accept()
@@ -107,6 +108,10 @@ func (t *TCPTransport) startAndAcceptLoop() {
 	}
 }
 
+// func runs inside a routine, which is called for each newly accepted conn
+// that calls OnPeer, handshake and then accepts incoming data from the peer
+// the incoming data is then injected into the server handled by the server's running loop method
+// that calls appropriate func dependent on decoded incoming rpc
 func (t *TCPTransport) handleConn(conn net.Conn) {
 	var err error
 	peer := NewTCPPeer(conn, false)
