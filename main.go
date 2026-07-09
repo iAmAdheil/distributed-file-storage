@@ -23,9 +23,6 @@ func configServer(listenaddr string, httpaddr string, nodes []string) *FileServe
 		PathTransformFunc: CASPathTransformFunc,
 		Root:              listenaddr + "_network",
 	}
-	httpServerOpts := HttpOpts{
-		HttpAddr: httpaddr,
-	}
 
 	// pass tcp transport here
 	// make it generic, by passing the to be used transport layer from outside
@@ -36,10 +33,10 @@ func configServer(listenaddr string, httpaddr string, nodes []string) *FileServe
 		transport: tcpTransport,
 
 		StoreOpts: storeOpts,
-		HttpOpts:  httpServerOpts,
 
 		BootStrapNodes: nodes,
 		ID:             genID(),
+		HttpAddr:       httpaddr,
 	}
 
 	server := NewFileServer(fileServerOpts)

@@ -6,3 +6,6 @@ run: build
 
 test:
 	@go test -v ./...
+
+clean:
+	@./scripts/clean_network_folders.sh
