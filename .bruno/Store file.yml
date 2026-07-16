@@ -1,0 +1,28 @@
+info:
+  name: Store file
+  type: http
+  seq: 1
+
+http:
+  method: PUT
+  url: http://localhost:8001/:bucket/:key
+  params:
+    - name: bucket
+      value: my-bucket
+      type: path
+    - name: key
+      value: test.txt
+      type: path
+  body:
+    type: file
+    data:
+      - filePath: /Users/abhishekgupta/Desktop/test.txt
+        contentType: text/plain; charset=utf-8
+        selected: true
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

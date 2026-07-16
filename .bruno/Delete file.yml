@@ -1,0 +1,22 @@
+info:
+  name: Delete file
+  type: http
+  seq: 4
+
+http:
+  method: DELETE
+  url: http://localhost:8001/:bucket/:key
+  params:
+    - name: bucket
+      value: my-bucket
+      type: path
+    - name: key
+      value: test.txt
+      type: path
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
