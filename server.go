@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/iAmAdheil/distributed-file-storage/db"
 	"github.com/iAmAdheil/distributed-file-storage/p2p"
 )
 
@@ -164,6 +165,7 @@ func (fServer *FileServer) Delete(key string) error {
 
 type FileServerOpts struct {
 	StoreOpts
+	db.DBOpts
 
 	transport p2p.Transport
 
@@ -177,6 +179,7 @@ type FileServer struct {
 	FileServerOpts
 
 	store *Store
+	db    *db.DB
 
 	peerLock sync.Mutex
 	peers    map[string]p2p.Peer
@@ -188,6 +191,7 @@ func NewFileServer(opts FileServerOpts) *FileServer {
 		FileServerOpts: opts,
 
 		store: NewStore(opts.StoreOpts),
+		db:    db.NewDB(opts.DBOpts),
 
 		peerLock: sync.Mutex{},
 		peers:    make(map[string]p2p.Peer),

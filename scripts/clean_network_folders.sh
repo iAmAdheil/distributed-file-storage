@@ -26,3 +26,12 @@ for port in "${PORTS[@]}"; do
 done
 
 echo "done: ${removed} folder(s) removed"
+
+# Empty the DBs directory but keep the directory itself.
+dbs="${ROOT}/DBs"
+if [[ -d "$dbs" ]]; then
+	find "$dbs" -mindepth 1 -delete
+	echo "cleared ${dbs}"
+else
+	echo "skip   ${dbs} (not found)"
+fi

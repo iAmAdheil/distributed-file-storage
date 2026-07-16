@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/iAmAdheil/distributed-file-storage/db"
 	"github.com/iAmAdheil/distributed-file-storage/p2p"
 )
 
@@ -23,6 +24,9 @@ func configServer(listenaddr string, httpaddr string, nodes []string) *FileServe
 		PathTransformFunc: CASPathTransformFunc,
 		Root:              listenaddr + "_network",
 	}
+	dbOpts := db.DBOpts{
+		Filename: listenaddr + ".db",
+	}
 
 	// pass tcp transport here
 	// make it generic, by passing the to be used transport layer from outside
@@ -33,6 +37,7 @@ func configServer(listenaddr string, httpaddr string, nodes []string) *FileServe
 		transport: tcpTransport,
 
 		StoreOpts: storeOpts,
+		DBOpts:    dbOpts,
 
 		BootStrapNodes: nodes,
 		ID:             genID(),
