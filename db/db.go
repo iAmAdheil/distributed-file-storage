@@ -89,11 +89,14 @@ func (db *DB) GetMeta(Bucket string, Key string) (*model.Metadata, error) {
 			return fmt.Errorf("Bucket (%s) does not exist.", Bucket)
 		}
 
-		if err := bucket.Delete(k); err != nil {
-			return err
+		data := bucket.Get(k)
+		if len(data) == 0 {
+			return fmt.Errorf("Key (%s) not found.", Key)
 		}
 
-		fmt.Printf("Object deleted from bucket (%s)\n", Bucket)
+		if err := md.Decode(data); err != nil {
+			return err
+		}
 
 		return nil
 	})

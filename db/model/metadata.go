@@ -3,20 +3,21 @@ package model
 import (
 	"bytes"
 	"encoding/gob"
+	"time"
 )
 
 type Metadata struct {
 	Bucket      string
 	Key         string
-	Size        int
+	Size        int64
 	ContentType string
-	CreatedAt   string
+	CreatedAt   time.Time
 }
 
 func (md *Metadata) Encode(buf *bytes.Buffer) error {
 	return gob.NewEncoder(buf).Encode(md)
 }
 
-func (md *Metadata) Decode(buf *bytes.Buffer) error {
-	return gob.NewDecoder(buf).Decode(&md)
+func (md *Metadata) Decode(data []byte) error {
+	return gob.NewDecoder(bytes.NewReader(data)).Decode(&md)
 }
