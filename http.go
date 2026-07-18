@@ -9,14 +9,15 @@ import (
 	"time"
 )
 
-func validateURLParamsMiddleware(next http.HandlerFunc) http.HandlerFunc {
+func validateURLParamsMiddleware(next http.HandlerFunc, params []string) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		bucket := r.PathValue("bucket")
-		key := r.PathValue("key")
-
-		if len(key) == 0 || len(bucket) == 0 {
-			http.Error(w, "bucket and key are compulsary URL param fields.", http.StatusBadRequest)
-			return
+		for _, param := range params {
+			val := r.PathValue(param)
+			if len(val) == 0 {
+				errMsg := fmt.Sprintf("%s is a compulsary URL param field.", param)
+				http.Error(w, errMsg, http.StatusBadRequest)
+				return
+			}
 		}
 
 		// API key is valid, proceed to next handler
@@ -29,9 +30,10 @@ func (fServer *FileServer) startHttpServer() {
 
 	// Register handlers using HandleFunc (for simple functions)
 	mux.HandleFunc("GET /health", fServer.healthHandler)
-	mux.HandleFunc("PUT /{bucket}/{key}", validateURLParamsMiddleware(fServer.storeHandler))
-	mux.HandleFunc("GET /{bucket}/{key}", validateURLParamsMiddleware(fServer.getHandler))
-	mux.HandleFunc("DELETE /{bucket}/{key}", validateURLParamsMiddleware(fServer.deleteHandler))
+	mux.HandleFunc("PUT /{bucket}/{key}", validateURLParamsMiddleware(fServer.storeHandler, []string{"bucket", "key"}))
+	mux.HandleFunc("GET /{bucket}/{key}", validateURLParamsMiddleware(fServer.getHandler, []string{"bucket", "key"}))
+	mux.HandleFunc("DELETE /{bucket}/{key}", validateURLParamsMiddleware(fServer.deleteHandler, []string{"bucket", "key"}))
+	mux.HandleFunc("GET /{bucket}", validateURLParamsMiddleware(fServer.listHandler, []string{"bucket"}))
 
 	srv := &http.Server{
 		Addr:    fServer.HttpAddr,

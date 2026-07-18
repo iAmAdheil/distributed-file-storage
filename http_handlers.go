@@ -1,13 +1,16 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
+	"github.com/iAmAdheil/distributed-file-storage/db"
 	"github.com/iAmAdheil/distributed-file-storage/db/model"
 )
 
@@ -83,9 +86,49 @@ func (fServer *FileServer) deleteHandler(w http.ResponseWriter, r *http.Request)
 
 	if err := fServer.Delete(pathkey); err != nil {
 		http.Error(w, "File not found", http.StatusNotFound)
+		return
 	}
 
 	fServer.db.DeleteMeta(bucket, key)
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type listhandlerRes struct {
+	Objects     []model.Metadata `json:"objects"`
+	IsTruncated bool             `json:"is_truncated"`
+	ContToken   string           `json:"continuation_token"`
+}
+
+func (fServer *FileServer) listHandler(w http.ResponseWriter, r *http.Request) {
+	bucket := r.PathValue("bucket")
+	prefix := r.URL.Query().Get("prefix")
+	maxKeys, err := strconv.Atoi(r.URL.Query().Get("max-keys"))
+	if err != nil {
+		maxKeys = -1
+	}
+	contToken := r.URL.Query().Get("continuation-token")
+
+	params := db.ListMetaParams{
+		Prefix:    prefix,
+		MaxKeys:   maxKeys,
+		ContToken: contToken,
+	}
+
+	res, err := fServer.db.ListMeta(bucket, params)
+	if err != nil {
+		http.Error(w, "Failed to fetch bucket items.", http.StatusInternalServerError)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	isTrunc := false
+	if len(res.ContToken) > 0 {
+		isTrunc = true
+	}
+
+	if err := json.NewEncoder(w).Encode(listhandlerRes{Objects: res.List, IsTruncated: isTrunc, ContToken: res.ContToken}); err != nil {
+		fmt.Printf("Error when encoding list items: %s\n", err.Error())
+	}
 }

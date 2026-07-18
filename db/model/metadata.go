@@ -7,11 +7,11 @@ import (
 )
 
 type Metadata struct {
-	Bucket      string
-	Key         string
-	Size        int64
-	ContentType string
-	CreatedAt   time.Time
+	Bucket      string    `json:"bucket"`
+	Key         string    `json:"key"`
+	Size        int64     `json:"size"`
+	ContentType string    `json:"contentType"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 func (md *Metadata) Encode(buf *bytes.Buffer) error {

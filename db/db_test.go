@@ -2,6 +2,7 @@ package db
 
 import (
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -35,5 +36,43 @@ func TestDB(t *testing.T) {
 
 	if err := db.DeleteMeta(testMd.Bucket, testMd.Key); err != nil {
 		t.Errorf("Deleting the object failed: %s\n", err.Error())
+	}
+}
+
+func TestListMeta(t *testing.T) {
+	dbOpts := &DBOpts{
+		Filename: "test_db.db",
+	}
+
+	db := NewDB(*dbOpts)
+
+	for i := 0; i < 10; i++ {
+		testMd := &model.Metadata{
+			Bucket:      "testbucket",
+			Key:         "testkey_" + strconv.Itoa(i),
+			Size:        100,
+			ContentType: "text",
+			CreatedAt:   time.Now(),
+		}
+		if err := db.PutMeta(testMd); err != nil {
+			t.Errorf("Adding the object failed: %s\n", err.Error())
+		}
+	}
+
+	res, err := db.ListMeta("testbucket", ListMetaParams{
+		ContToken: "testkey_2",
+		MaxKeys:   2,
+	})
+	if err != nil {
+		t.Errorf("Listing bucket items failed: %s\n", err.Error())
+	}
+
+	fmt.Printf("List items: %v\n", res.List)
+	fmt.Println("Continuation token:", res.ContToken)
+
+	for i := 0; i < 10; i++ {
+		if err := db.DeleteMeta("testbucket", "testkey_"+strconv.Itoa(i)); err != nil {
+			t.Errorf("Deleting the object failed: %s\n", err.Error())
+		}
 	}
 }

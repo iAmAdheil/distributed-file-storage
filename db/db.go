@@ -3,6 +3,7 @@ package db
 import (
 	"bytes"
 	"fmt"
+	"strings"
 
 	"github.com/iAmAdheil/distributed-file-storage/db/model"
 	bolt "go.etcd.io/bbolt"
@@ -102,4 +103,96 @@ func (db *DB) GetMeta(Bucket string, Key string) (*model.Metadata, error) {
 	})
 
 	return md, err
+}
+
+type ListMetaParams struct {
+	Prefix    string // filter out entries starting with prefix
+	MaxKeys   int
+	ContToken string // start from after this token
+}
+
+type ListMetaRes struct {
+	List      []model.Metadata
+	ContToken string
+}
+
+func (db *DB) ListMeta(Bucket string, params ListMetaParams) (*ListMetaRes, error) {
+	list := []model.Metadata{}
+	contToken := ""
+
+	err := db.in.View(func(tx *bolt.Tx) error {
+		bname := []byte(Bucket)
+
+		bucket := tx.Bucket(bname)
+		if bucket == nil {
+			return fmt.Errorf("Bucket (%s) does not exist.", Bucket)
+		}
+
+		count := params.MaxKeys
+		if count <= 0 {
+			count = 1000 // sane limit
+		}
+
+		cursor := bucket.Cursor()
+		// set up the starting pos, while also adding it
+		if len(params.ContToken) > 0 {
+			t := []byte(params.ContToken)
+
+			k, v := cursor.Seek(t)
+			// in case the key has been deleted, seek -> next entry
+			if len(v) > 0 && !bytes.Equal(k, t) && strings.HasPrefix(string(k), params.Prefix) {
+				var md model.Metadata
+				if err := (&md).Decode(v); err != nil {
+					return err
+				}
+				list = append(list, md)
+				count--
+			}
+		} else {
+			k, v := cursor.First()
+			if len(v) > 0 && strings.HasPrefix(string(k), params.Prefix) {
+				var md model.Metadata
+				if err := (&md).Decode(v); err != nil {
+					return err
+				}
+				list = append(list, md)
+				count--
+			}
+		}
+
+		for {
+			k, v := cursor.Next()
+			if k == nil || v == nil {
+				break
+			}
+
+			if count == 0 {
+				if len(list) > 0 {
+					last := list[len(list)-1]
+					contToken = last.Key
+				}
+				break
+			}
+
+			if !strings.HasPrefix(string(k), params.Prefix) {
+				continue
+			}
+
+			var md model.Metadata
+			if err := (&md).Decode(v); err != nil {
+				return err
+			}
+			list = append(list, md)
+			count--
+		}
+
+		return nil
+	})
+
+	res := &ListMetaRes{
+		List:      list,
+		ContToken: contToken,
+	}
+
+	return res, err
 }
