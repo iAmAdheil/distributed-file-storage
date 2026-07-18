@@ -135,29 +135,21 @@ func (db *DB) ListMeta(Bucket string, params ListMetaParams) (*ListMetaRes, erro
 
 		cursor := bucket.Cursor()
 		// set up the starting pos, while also adding it
+		var k []byte
+		var v []byte
+		t := []byte(params.ContToken)
 		if len(params.ContToken) > 0 {
-			t := []byte(params.ContToken)
-
-			k, v := cursor.Seek(t)
-			// in case the key has been deleted, seek -> next entry
-			if len(v) > 0 && !bytes.Equal(k, t) && strings.HasPrefix(string(k), params.Prefix) {
-				var md model.Metadata
-				if err := (&md).Decode(v); err != nil {
-					return err
-				}
-				list = append(list, md)
-				count--
-			}
+			k, v = cursor.Seek(t)
 		} else {
-			k, v := cursor.First()
-			if len(v) > 0 && strings.HasPrefix(string(k), params.Prefix) {
-				var md model.Metadata
-				if err := (&md).Decode(v); err != nil {
-					return err
-				}
-				list = append(list, md)
-				count--
+			k, v = cursor.First()
+		}
+		if len(v) > 0 && strings.HasPrefix(string(k), params.Prefix) {
+			var md model.Metadata
+			if err := (&md).Decode(v); err != nil {
+				return err
 			}
+			list = append(list, md)
+			count--
 		}
 
 		for {
@@ -166,6 +158,15 @@ func (db *DB) ListMeta(Bucket string, params ListMetaParams) (*ListMetaRes, erro
 				break
 			}
 
+			// Does 2 things ->
+			// 1. prevents non-prefix matching keys to be added to list
+			// 2. check if bucket still has entries left with matching prefix
+			// after last added element to the list
+			if !strings.HasPrefix(string(k), params.Prefix) {
+				continue
+			}
+
+			// track if elements after last entry still have same prefix
 			if count == 0 {
 				if len(list) > 0 {
 					last := list[len(list)-1]
@@ -174,16 +175,15 @@ func (db *DB) ListMeta(Bucket string, params ListMetaParams) (*ListMetaRes, erro
 				break
 			}
 
-			if !strings.HasPrefix(string(k), params.Prefix) {
-				continue
+			// never add elements once max keys = 0
+			if count > 0 {
+				var md model.Metadata
+				if err := (&md).Decode(v); err != nil {
+					return err
+				}
+				list = append(list, md)
+				count--
 			}
-
-			var md model.Metadata
-			if err := (&md).Decode(v); err != nil {
-				return err
-			}
-			list = append(list, md)
-			count--
 		}
 
 		return nil

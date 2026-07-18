@@ -118,6 +118,7 @@ func (fServer *FileServer) listHandler(w http.ResponseWriter, r *http.Request) {
 	res, err := fServer.db.ListMeta(bucket, params)
 	if err != nil {
 		http.Error(w, "Failed to fetch bucket items.", http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")

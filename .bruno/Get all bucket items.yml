@@ -5,7 +5,7 @@ info:
 
 http:
   method: GET
-  url: http://localhost:8001/:bucket?prefix=test&max-keys=2&continuation-token=test2.txt
+  url: http://localhost:8001/:bucket?prefix=test
   params:
     - name: prefix
       value: test
@@ -13,9 +13,11 @@ http:
     - name: max-keys
       value: "2"
       type: query
+      disabled: true
     - name: continuation-token
-      value: test2.txt
+      value: test.txt
       type: query
+      disabled: true
     - name: bucket
       value: my-bucket
       type: path
