@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,7 +36,10 @@ func (fServer *FileServer) storeHandler(w http.ResponseWriter, r *http.Request) 
 		CreatedAt:   time.Now(),
 	}
 
-	if err := fServer.Store(pathkey, r.Body); err != nil {
+	// stores the content hash for etag
+	chash := md5.New()
+
+	if err := fServer.Store(pathkey, io.TeeReader(r.Body, chash)); err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
 			http.Error(w, "Request body is too large (Max 1MB allowed)", http.StatusRequestEntityTooLarge)
@@ -50,6 +55,9 @@ func (fServer *FileServer) storeHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	etag := chash.Sum(nil)
+
+	w.Header().Set("ETag", hex.EncodeToString(etag[:]))
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("File stored successfully."))
 }
