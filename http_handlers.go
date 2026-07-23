@@ -1,20 +1,40 @@
 package main
 
 import (
+	"bufio"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
 	"github.com/iAmAdheil/distributed-file-storage/db"
 	"github.com/iAmAdheil/distributed-file-storage/db/model"
 )
+
+type s3error struct {
+	XMLName xml.Name `xml:"Error"`
+
+	Code     string `xml:"Code"`
+	Message  string `xml:"Message"`
+	Bucket   string `xml:"Bucket,omitempty"`
+	Key      string `xml:"Key,omitempty"`
+	Resource string `xml:"Resource,omitempty"`
+	ReqId    string `xml:"RequestId,omitempty"`
+}
+
+func (s *s3error) WriteS3Err(w http.ResponseWriter, status int) {
+	w.WriteHeader(status)
+	xml.NewEncoder(w).Encode(*s)
+}
 
 func (fServer *FileServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(200)
@@ -27,6 +47,8 @@ func (fServer *FileServer) storeHandler(w http.ResponseWriter, r *http.Request) 
 	pathkey := bucket + "/" + key
 
 	r.Body = http.MaxBytesReader(w, r.Body, MAX_FILE_SIZE)
+
+	w.Header().Set("Content-Type", "application/xml")
 
 	fileMetadata := &model.Metadata{
 		Bucket:      bucket,
@@ -42,16 +64,37 @@ func (fServer *FileServer) storeHandler(w http.ResponseWriter, r *http.Request) 
 	if err := fServer.Store(pathkey, io.TeeReader(r.Body, chash)); err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
-			http.Error(w, "Request body is too large (Max 1MB allowed)", http.StatusRequestEntityTooLarge)
+			s3err := &s3error{
+				Code:     "EntityTooLarge",
+				Message:  "Request body is too large (Max 1MB allowed)",
+				Bucket:   bucket,
+				Key:      key,
+				Resource: fmt.Sprintf("/%s/%s", bucket, key),
+			}
+			s3err.WriteS3Err(w, http.StatusRequestEntityTooLarge)
 			return
 		}
 
-		http.Error(w, "An error occured when storing the file.", http.StatusInternalServerError)
+		s3err := &s3error{
+			Code:     "InternalError",
+			Message:  "An error occured while storing the file",
+			Bucket:   bucket,
+			Key:      key,
+			Resource: fmt.Sprintf("/%s/%s", bucket, key),
+		}
+		s3err.WriteS3Err(w, http.StatusInternalServerError)
 		return
 	}
 
 	if err := fServer.db.PutMeta(fileMetadata); err != nil {
-		http.Error(w, "An error occured when storing the file.", http.StatusInternalServerError)
+		s3err := &s3error{
+			Code:     "InternalError",
+			Message:  "An error occured while storing file metadata",
+			Bucket:   bucket,
+			Key:      key,
+			Resource: fmt.Sprintf("/%s/%s", bucket, key),
+		}
+		s3err.WriteS3Err(w, http.StatusInternalServerError)
 		return
 	}
 
@@ -67,18 +110,108 @@ func (fServer *FileServer) getHandler(w http.ResponseWriter, r *http.Request) {
 	bucket := r.PathValue("bucket")
 	pathkey := bucket + "/" + key
 
-	cr, err := fServer.Get(pathkey) // content reader
+	w.Header().Set("Content-Type", "application/xml")
+
+	md, err := fServer.db.GetMeta(bucket, key)
 	if err != nil {
-		http.Error(w, "File not found.", http.StatusNotFound)
+		var bnf *db.BucketNotFound
+		if errors.As(err, &bnf) {
+			s3err := &s3error{
+				Code:     "NoSuchBucket",
+				Message:  err.Error(),
+				Bucket:   bucket,
+				Key:      key,
+				Resource: fmt.Sprintf("/%s/%s", bucket, key),
+			}
+			s3err.WriteS3Err(w, http.StatusNotFound)
+			return
+		}
+
+		var knf *db.KeyNotFound
+		if errors.As(err, &knf) {
+			s3err := &s3error{
+				Code:     "NoSuchKey",
+				Message:  err.Error(),
+				Bucket:   bucket,
+				Key:      key,
+				Resource: fmt.Sprintf("/%s/%s", bucket, key),
+			}
+			s3err.WriteS3Err(w, http.StatusNotFound)
+			return
+		}
+
+		s3err := &s3error{
+			Code:     "InternalError",
+			Message:  "File metadata could not be retrieved",
+			Bucket:   bucket,
+			Key:      key,
+			Resource: fmt.Sprintf("/%s/%s", bucket, key),
+		}
+		s3err.WriteS3Err(w, http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Transfer-Encoding", "chunked")
+	cr, err := fServer.Get(pathkey) // content reader
+	if err != nil {
+		// ignoring any replication errors, only handling if file not found locally
+		// before and after replication
+		var pathErr *os.PathError
+		if errors.As(err, &pathErr) {
+			s3err := &s3error{
+				Code:     "InternalError",
+				Message:  "File not found",
+				Bucket:   bucket,
+				Key:      key,
+				Resource: fmt.Sprintf("/%s/%s", bucket, key),
+			}
+			s3err.WriteS3Err(w, http.StatusNotFound)
+			return
+		}
+
+		s3err := &s3error{
+			Code:     "InternalError",
+			Message:  "File could not be retrieved",
+			Bucket:   bucket,
+			Key:      key,
+			Resource: fmt.Sprintf("/%s/%s", bucket, key),
+		}
+		s3err.WriteS3Err(w, http.StatusInternalServerError)
+		return
+	}
+	defer cr.Close()
+
+	br := bufio.NewReader(cr)
+
+	var contentType string = md.ContentType
+	if len(contentType) == 0 {
+		m := mime.TypeByExtension(key)
+		if len(m) > 0 {
+			contentType = m
+		} else {
+			pb, err := br.Peek(512) // peek bytes
+			if err != nil && err != io.EOF {
+				s3err := &s3error{
+					Code:     "InternalError",
+					Message:  "File mimetype/extension could not be deciphered",
+					Bucket:   bucket,
+					Key:      key,
+					Resource: fmt.Sprintf("/%s/%s", bucket, key),
+				}
+				s3err.WriteS3Err(w, http.StatusInternalServerError)
+				return
+			}
+
+			contentType = http.DetectContentType(pb)
+		}
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", strconv.FormatInt(md.Size, 10))
+	w.Header().Set("Last-Modified", md.CreatedAt.UTC().Format(http.TimeFormat))
 
 	w.WriteHeader(http.StatusOK)
 
-	bw, err := io.Copy(w, cr)
+	bw, err := io.Copy(w, br)
 	if err != nil {
 		// PHASE 2 ERROR: Streaming already started.
 		// w.WriteHeader() has already fired. We can only log this.
@@ -92,12 +225,63 @@ func (fServer *FileServer) deleteHandler(w http.ResponseWriter, r *http.Request)
 	bucket := r.PathValue("bucket")
 	pathkey := bucket + "/" + key
 
-	if err := fServer.Delete(pathkey); err != nil {
-		http.Error(w, "File not found", http.StatusNotFound)
+	// confirm if bucket and key exist
+	_, err := fServer.db.GetMeta(bucket, key)
+	if err != nil {
+		var bnf *db.BucketNotFound
+		if errors.As(err, &bnf) {
+			s3err := &s3error{
+				Code:     "NoSuchBucket",
+				Message:  err.Error(),
+				Bucket:   bucket,
+				Key:      key,
+				Resource: fmt.Sprintf("/%s/%s", bucket, key),
+			}
+			s3err.WriteS3Err(w, http.StatusNotFound)
+			return
+		}
+
+		var knf *db.KeyNotFound
+		if errors.As(err, &knf) {
+			s3err := &s3error{
+				Code:     "NoSuchKey",
+				Message:  err.Error(),
+				Bucket:   bucket,
+				Key:      key,
+				Resource: fmt.Sprintf("/%s/%s", bucket, key),
+			}
+			s3err.WriteS3Err(w, http.StatusNotFound)
+			return
+		}
+
+		s3err := &s3error{
+			Code:     "InternalError",
+			Message:  "File metadata could not be retrieved",
+			Bucket:   bucket,
+			Key:      key,
+			Resource: fmt.Sprintf("/%s/%s", bucket, key),
+		}
+		s3err.WriteS3Err(w, http.StatusInternalServerError)
 		return
 	}
 
-	fServer.db.DeleteMeta(bucket, key)
+	if err := fServer.Delete(pathkey); err != nil {
+		s3err := &s3error{
+			Code:     "InternalError",
+			Message:  "File not found",
+			Bucket:   bucket,
+			Key:      key,
+			Resource: fmt.Sprintf("/%s/%s", bucket, key),
+		}
+		s3err.WriteS3Err(w, http.StatusNotFound)
+		return
+	}
+
+	if err := fServer.db.DeleteMeta(bucket, key); err != nil {
+		// case -> file deleted but metadata deletion failed
+		// (@iAmAdheil) handle tthis in the future
+		fmt.Printf("Delete metadata failed: %s\n", err.Error())
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -117,6 +301,8 @@ func (fServer *FileServer) listHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	contToken := r.URL.Query().Get("continuation-token")
 
+	w.Header().Set("Content-Type", "application/json")
+
 	params := db.ListMetaParams{
 		Prefix:    prefix,
 		MaxKeys:   maxKeys,
@@ -125,11 +311,31 @@ func (fServer *FileServer) listHandler(w http.ResponseWriter, r *http.Request) {
 
 	res, err := fServer.db.ListMeta(bucket, params)
 	if err != nil {
-		http.Error(w, "Failed to fetch bucket items.", http.StatusInternalServerError)
+		var bnf *db.BucketNotFound
+		if errors.As(err, &bnf) {
+			if errors.As(err, &bnf) {
+				s3err := &s3error{
+					Code:     "NoSuchBucket",
+					Message:  err.Error(),
+					Bucket:   bucket,
+					Resource: fmt.Sprintf("/%s", bucket),
+				}
+				s3err.WriteS3Err(w, http.StatusNotFound)
+				return
+			}
+			return
+		}
+
+		s3err := &s3error{
+			Code:     "InternalError",
+			Message:  "Failed to fetch bucket items",
+			Bucket:   bucket,
+			Resource: fmt.Sprintf("/%s", bucket),
+		}
+		s3err.WriteS3Err(w, http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
 	isTrunc := false

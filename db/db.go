@@ -63,7 +63,7 @@ func (db *DB) DeleteMeta(Bucket string, Key string) error {
 
 		bucket := tx.Bucket(bname)
 		if bucket == nil {
-			return fmt.Errorf("Bucket (%s) does not exist.", Bucket)
+			return fmt.Errorf("Bucket (%s) does not exist.\n", Bucket)
 		}
 
 		if err := bucket.Delete(k); err != nil {
@@ -87,12 +87,12 @@ func (db *DB) GetMeta(Bucket string, Key string) (*model.Metadata, error) {
 
 		bucket := tx.Bucket(bname)
 		if bucket == nil {
-			return fmt.Errorf("Bucket (%s) does not exist.", Bucket)
+			return &BucketNotFound{Name: Bucket}
 		}
 
 		data := bucket.Get(k)
 		if len(data) == 0 {
-			return fmt.Errorf("Key (%s) not found.", Key)
+			return &KeyNotFound{Name: Key}
 		}
 
 		if err := md.Decode(data); err != nil {
@@ -125,7 +125,7 @@ func (db *DB) ListMeta(Bucket string, params ListMetaParams) (*ListMetaRes, erro
 
 		bucket := tx.Bucket(bname)
 		if bucket == nil {
-			return fmt.Errorf("Bucket (%s) does not exist.", Bucket)
+			return &BucketNotFound{Name: Bucket}
 		}
 
 		count := params.MaxKeys

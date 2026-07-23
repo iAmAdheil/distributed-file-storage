@@ -66,7 +66,7 @@ type MessageStoreFile struct {
 // Currently check if file exists locally, if not stream it from another peer
 // Ideally ask peers with the stored file, then choose one peer to stream it
 // and then listen for data stream from that peer
-func (fServer *FileServer) Get(key string) (io.Reader, error) {
+func (fServer *FileServer) Get(key string) (io.ReadCloser, error) {
 	ok := fServer.store.Has(key, fServer.ID)
 	if ok {
 		_, r, err := fServer.store.Read(key, fServer.ID)
