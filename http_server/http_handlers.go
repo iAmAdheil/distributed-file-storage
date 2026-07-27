@@ -1,4 +1,4 @@
-package main
+package http_server
 
 import (
 	"bufio"
@@ -36,12 +36,12 @@ func (s *s3error) WriteS3Err(w http.ResponseWriter, status int) {
 	xml.NewEncoder(w).Encode(*s)
 }
 
-func (fServer *FileServer) healthHandler(w http.ResponseWriter, r *http.Request) {
+func (server *HTTPServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(200)
 	fmt.Fprint(w, "Server ready to respond!\n")
 }
 
-func (fServer *FileServer) storeHandler(w http.ResponseWriter, r *http.Request) {
+func (server *HTTPServer) storeHandler(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	bucket := r.PathValue("bucket")
 	pathkey := bucket + "/" + key
@@ -61,7 +61,7 @@ func (fServer *FileServer) storeHandler(w http.ResponseWriter, r *http.Request) 
 	// stores the content hash for etag
 	chash := md5.New()
 
-	if err := fServer.Store(pathkey, io.TeeReader(r.Body, chash)); err != nil {
+	if err := server.Internal.Store(pathkey, io.TeeReader(r.Body, chash)); err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
 			s3err := &s3error{
@@ -86,7 +86,7 @@ func (fServer *FileServer) storeHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := fServer.db.PutMeta(fileMetadata); err != nil {
+	if err := server.db.PutMeta(fileMetadata); err != nil {
 		s3err := &s3error{
 			Code:     "InternalError",
 			Message:  "An error occured while storing file metadata",
@@ -105,14 +105,14 @@ func (fServer *FileServer) storeHandler(w http.ResponseWriter, r *http.Request) 
 	w.Write([]byte("File stored successfully."))
 }
 
-func (fServer *FileServer) getHandler(w http.ResponseWriter, r *http.Request) {
+func (server *HTTPServer) getHandler(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	bucket := r.PathValue("bucket")
 	pathkey := bucket + "/" + key
 
 	w.Header().Set("Content-Type", "application/xml")
 
-	md, err := fServer.db.GetMeta(bucket, key)
+	md, err := server.db.GetMeta(bucket, key)
 	if err != nil {
 		var bnf *db.BucketNotFound
 		if errors.As(err, &bnf) {
@@ -151,7 +151,7 @@ func (fServer *FileServer) getHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cr, err := fServer.Get(pathkey) // content reader
+	cr, err := server.Internal.Get(pathkey) // content reader
 	if err != nil {
 		// ignoring any replication errors, only handling if file not found locally
 		// before and after replication
@@ -220,13 +220,13 @@ func (fServer *FileServer) getHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (fServer *FileServer) deleteHandler(w http.ResponseWriter, r *http.Request) {
+func (server *HTTPServer) deleteHandler(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	bucket := r.PathValue("bucket")
 	pathkey := bucket + "/" + key
 
 	// confirm if bucket and key exist
-	_, err := fServer.db.GetMeta(bucket, key)
+	_, err := server.db.GetMeta(bucket, key)
 	if err != nil {
 		var bnf *db.BucketNotFound
 		if errors.As(err, &bnf) {
@@ -265,7 +265,7 @@ func (fServer *FileServer) deleteHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := fServer.Delete(pathkey); err != nil {
+	if err := server.Internal.Delete(pathkey); err != nil {
 		s3err := &s3error{
 			Code:     "InternalError",
 			Message:  "File not found",
@@ -277,7 +277,7 @@ func (fServer *FileServer) deleteHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := fServer.db.DeleteMeta(bucket, key); err != nil {
+	if err := server.db.DeleteMeta(bucket, key); err != nil {
 		// case -> file deleted but metadata deletion failed
 		// (@iAmAdheil) handle tthis in the future
 		fmt.Printf("Delete metadata failed: %s\n", err.Error())
@@ -292,7 +292,7 @@ type listhandlerRes struct {
 	ContToken   string           `json:"continuation_token"`
 }
 
-func (fServer *FileServer) listHandler(w http.ResponseWriter, r *http.Request) {
+func (server *HTTPServer) listHandler(w http.ResponseWriter, r *http.Request) {
 	bucket := r.PathValue("bucket")
 	prefix := r.URL.Query().Get("prefix")
 	maxKeys, err := strconv.Atoi(r.URL.Query().Get("max-keys"))
@@ -309,7 +309,7 @@ func (fServer *FileServer) listHandler(w http.ResponseWriter, r *http.Request) {
 		ContToken: contToken,
 	}
 
-	res, err := fServer.db.ListMeta(bucket, params)
+	res, err := server.db.ListMeta(bucket, params)
 	if err != nil {
 		var bnf *db.BucketNotFound
 		if errors.As(err, &bnf) {
