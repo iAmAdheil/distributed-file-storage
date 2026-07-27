@@ -1,5 +1,8 @@
 package main
 
+// this is the internal per-node fileserver being invoked from inside the http server
+// implements main DFS functionality
+
 import (
 	"bytes"
 	"encoding/binary"
@@ -10,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/iAmAdheil/distributed-file-storage/db"
 	"github.com/iAmAdheil/distributed-file-storage/p2p"
 )
 
@@ -165,21 +167,18 @@ func (fServer *FileServer) Delete(key string) error {
 
 type FileServerOpts struct {
 	StoreOpts
-	db.DBOpts
 
 	transport p2p.Transport
 
 	EncKey         []byte
 	BootStrapNodes []string
 	ID             string
-	HttpAddr       string
 }
 
 type FileServer struct {
 	FileServerOpts
 
 	store *Store
-	db    *db.DB
 
 	peerLock sync.Mutex
 	peers    map[string]p2p.Peer
@@ -191,7 +190,6 @@ func NewFileServer(opts FileServerOpts) *FileServer {
 		FileServerOpts: opts,
 
 		store: NewStore(opts.StoreOpts),
-		db:    db.NewDB(opts.DBOpts),
 
 		peerLock: sync.Mutex{},
 		peers:    make(map[string]p2p.Peer),
@@ -201,7 +199,7 @@ func NewFileServer(opts FileServerOpts) *FileServer {
 	return server
 }
 
-func (fServer *FileServer) Start() error {
+func (fServer *FileServer) StartFileServer() error {
 	if err := fServer.transport.ListenAndAccept(); err != nil {
 		return err
 	}
@@ -211,7 +209,6 @@ func (fServer *FileServer) Start() error {
 	}
 
 	go fServer.loop()
-	go fServer.startHttpServer()
 
 	return nil
 }
