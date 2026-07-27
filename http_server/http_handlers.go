@@ -38,7 +38,6 @@ func (s *s3error) WriteS3Err(w http.ResponseWriter, status int) {
 
 func (server *HTTPServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(200)
-	fmt.Fprint(w, "Server ready to respond!\n")
 }
 
 func (server *HTTPServer) storeHandler(w http.ResponseWriter, r *http.Request) {
