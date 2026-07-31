@@ -1,4 +1,4 @@
-package main
+package file_server
 
 // this is the internal per-node fileserver being invoked from inside the http server
 // implements main DFS functionality
@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/iAmAdheil/distributed-file-storage/p2p"
+	"github.com/iAmAdheil/distributed-file-storage/file_server/p2p"
 )
 
 type Message struct {
