@@ -25,7 +25,6 @@ type InternalFileServer interface {
 type HTTPServerOpts struct {
 	HttpAddr string
 	Internal InternalFileServer
-	DB       *db.DB
 }
 
 type HTTPServer struct {
@@ -35,16 +34,25 @@ type HTTPServer struct {
 	db       *db.DB
 }
 
-func NewHTTPServer(httpOpts HTTPServerOpts) *HTTPServer {
+func New(httpOpts HTTPServerOpts) *HTTPServer {
+	dbOpts := db.DBOpts{
+		Filename: httpOpts.HttpAddr + ".db",
+	}
+	db := db.NewDB(dbOpts)
+
 	return &HTTPServer{
 		HTTPServerOpts: httpOpts,
 
-		db:       httpOpts.DB,
+		db:       db,
 		httpAddr: httpOpts.HttpAddr,
 	}
 }
 
-func (server *HTTPServer) StartHttpServer() error {
+func (server *HTTPServer) Address() string {
+	return server.HttpAddr
+}
+
+func (server *HTTPServer) Start() error {
 	go server.Listen()
 	return nil
 }
