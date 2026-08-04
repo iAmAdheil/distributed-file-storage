@@ -14,9 +14,3 @@ func genID() string {
 	}
 	return hex.EncodeToString(buf)
 }
-
-func newEncryptionKey() []byte {
-	keyBuf := make([]byte, 16)
-	io.ReadFull(rand.Reader, keyBuf)
-	return keyBuf
-}

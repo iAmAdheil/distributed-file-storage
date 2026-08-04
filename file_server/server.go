@@ -144,7 +144,6 @@ func (fServer *FileServer) Store(key string, r io.Reader) error {
 		return err
 	}
 
-	fmt.Printf("testing logs: %s %v %v", fServer.encKey, fileBuf.Len(), len(peers))
 	if _, err := copyEncrypt(fServer.encKey, fileBuf, mw); err != nil {
 		return err
 	}
