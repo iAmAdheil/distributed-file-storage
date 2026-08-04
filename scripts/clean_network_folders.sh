@@ -17,6 +17,9 @@ JUNK_FILES=(
 	":3000.db"
 	":4000.db"
 	":7000.db"
+	":8001.db"
+	":8002.db"
+	":8003.db"
 )
 
 # Run relative to the repo root regardless of where the script is invoked from.
