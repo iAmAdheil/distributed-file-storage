@@ -125,6 +125,8 @@ func (s *Store) writeStream(key string, id string, r io.Reader) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	defer file.Close()
+
 	n, err := io.Copy(file, r)
 	if err != nil {
 		return 0, err

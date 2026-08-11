@@ -35,8 +35,6 @@ func (server *HTTPServer) storeHandler(w http.ResponseWriter, r *http.Request) {
 
 	r.Body = http.MaxBytesReader(w, r.Body, MAX_FILE_SIZE)
 
-	w.Header().Set("Content-Type", "application/xml")
-
 	fileMetadata := &model.Metadata{
 		Bucket:      bucket,
 		Key:         key,
@@ -82,8 +80,6 @@ func (server *HTTPServer) getHandler(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	bucket := r.PathValue("bucket")
 	pathkey := bucket + "/" + key
-
-	w.Header().Set("Content-Type", "application/xml")
 
 	s3errOpts := &s3ErrOpts{
 		Bucket: bucket,
@@ -220,8 +216,6 @@ func (server *HTTPServer) listHandler(w http.ResponseWriter, r *http.Request) {
 		maxKeys = -1
 	}
 	contToken := r.URL.Query().Get("continuation-token")
-
-	w.Header().Set("Content-Type", "application/json")
 
 	params := db.ListMetaParams{
 		Prefix:    prefix,

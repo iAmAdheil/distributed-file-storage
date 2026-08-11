@@ -61,11 +61,11 @@ func (server *HTTPServer) Listen() {
 	mux := http.NewServeMux()
 
 	// Register handlers using HandleFunc (for simple functions)
-	mux.HandleFunc("GET /health", server.healthHandler)
-	mux.HandleFunc("PUT /{bucket}/{key}", validateURLParamsMiddleware(server.storeHandler, []string{"bucket", "key"}))
-	mux.HandleFunc("GET /{bucket}/{key}", validateURLParamsMiddleware(server.getHandler, []string{"bucket", "key"}))
-	mux.HandleFunc("DELETE /{bucket}/{key}", validateURLParamsMiddleware(server.deleteHandler, []string{"bucket", "key"}))
-	mux.HandleFunc("GET /{bucket}", validateURLParamsMiddleware(server.listHandler, []string{"bucket"}))
+	mux.HandleFunc("GET /health", setResHeaders(server.healthHandler))
+	mux.HandleFunc("PUT /{bucket}/{key}", setResHeaders(validateURLParamsMiddleware(server.storeHandler, []string{"bucket", "key"})))
+	mux.HandleFunc("GET /{bucket}/{key}", setResHeaders(validateURLParamsMiddleware(server.getHandler, []string{"bucket", "key"})))
+	mux.HandleFunc("DELETE /{bucket}/{key}", setResHeaders(validateURLParamsMiddleware(server.deleteHandler, []string{"bucket", "key"})))
+	mux.HandleFunc("GET /{bucket}", setResHeaders(validateURLParamsMiddleware(server.listHandler, []string{"bucket"})))
 
 	srv := &http.Server{
 		Addr:    server.httpAddr,
