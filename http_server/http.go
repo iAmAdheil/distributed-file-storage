@@ -63,7 +63,8 @@ func (server *HTTPServer) Listen() {
 	// Register handlers using HandleFunc (for simple functions)
 	mux.HandleFunc("GET /health", setResHeaders(server.healthHandler))
 	mux.HandleFunc("PUT /{bucket}/{key}", setResHeaders(validateURLParamsMiddleware(server.storeHandler, []string{"bucket", "key"})))
-	mux.HandleFunc("GET /{bucket}/{key}", setResHeaders(validateURLParamsMiddleware(server.getHandler, []string{"bucket", "key"})))
+	// get handles setting its own content headers
+	mux.HandleFunc("GET /{bucket}/{key}", validateURLParamsMiddleware(server.getHandler, []string{"bucket", "key"}))
 	mux.HandleFunc("DELETE /{bucket}/{key}", setResHeaders(validateURLParamsMiddleware(server.deleteHandler, []string{"bucket", "key"})))
 	mux.HandleFunc("GET /{bucket}", setResHeaders(validateURLParamsMiddleware(server.listHandler, []string{"bucket"})))
 

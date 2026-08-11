@@ -64,6 +64,9 @@ func (server *HTTPServer) storeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := server.db.PutMeta(fileMetadata); err != nil {
+		// best effort in case put meta fails
+		server.Internal.Delete(pathkey)
+
 		s3errOpts.Msg = "An error occured while storing file metadata"
 		WriteS3Err(w, http.StatusInternalServerError, "InternalError", s3errOpts)
 		return
