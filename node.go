@@ -29,8 +29,8 @@ func configNode(serveraddr string, httpaddr string, nodes []string) *Node {
 	fileServer := file_server.New(fileServerOpts)
 
 	httpServerOpts := http_server.HTTPServerOpts{
-		HttpAddr: httpaddr,
-		Internal: fileServer,
+		ListenAddress: httpaddr,
+		Internal:      fileServer,
 	}
 	httpServer := http_server.New(httpServerOpts)
 

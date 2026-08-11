@@ -17,7 +17,7 @@ type DB struct {
 	in *bolt.DB
 }
 
-func NewDB(dbOpts DBOpts) *DB {
+func New(dbOpts DBOpts) *DB {
 	// Open the my.db data file in your current directory.
 	// It will be created if it doesn't exist.
 	db, err := bolt.Open(dbOpts.Filename, 0600, nil)

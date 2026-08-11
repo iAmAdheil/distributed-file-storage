@@ -23,8 +23,8 @@ type InternalFileServer interface {
 }
 
 type HTTPServerOpts struct {
-	HttpAddr string
-	Internal InternalFileServer
+	ListenAddress string
+	Internal      InternalFileServer
 }
 
 type HTTPServer struct {
@@ -36,20 +36,20 @@ type HTTPServer struct {
 
 func New(httpOpts HTTPServerOpts) *HTTPServer {
 	dbOpts := db.DBOpts{
-		Filename: httpOpts.HttpAddr + ".db",
+		Filename: "http_" + httpOpts.ListenAddress + ".db",
 	}
-	db := db.NewDB(dbOpts)
+	db := db.New(dbOpts)
 
 	return &HTTPServer{
 		HTTPServerOpts: httpOpts,
 
 		db:       db,
-		httpAddr: httpOpts.HttpAddr,
+		httpAddr: httpOpts.ListenAddress,
 	}
 }
 
 func (server *HTTPServer) Address() string {
-	return server.HttpAddr
+	return server.httpAddr
 }
 
 func (server *HTTPServer) Start() error {

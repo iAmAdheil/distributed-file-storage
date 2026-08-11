@@ -22,7 +22,7 @@ func TestDB(t *testing.T) {
 		CreatedAt:   time.Now(),
 	}
 
-	db := NewDB(*dbOpts)
+	db := New(*dbOpts)
 	if err := db.PutMeta(testMd); err != nil {
 		t.Errorf("Adding the object failed: %s\n", err.Error())
 	}
@@ -44,7 +44,7 @@ func TestListMeta(t *testing.T) {
 		Filename: "test_db.db",
 	}
 
-	db := NewDB(*dbOpts)
+	db := New(*dbOpts)
 
 	for i := 0; i < 10; i++ {
 		testMd := &model.Metadata{
