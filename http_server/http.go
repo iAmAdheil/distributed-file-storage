@@ -23,9 +23,8 @@ type InternalFileServer interface {
 }
 
 type HTTPServerOpts struct {
-	HttpAddr string
-	Internal InternalFileServer
-	DB       *db.DB
+	ListenAddress string
+	Internal      InternalFileServer
 }
 
 type HTTPServer struct {
@@ -35,16 +34,25 @@ type HTTPServer struct {
 	db       *db.DB
 }
 
-func NewHTTPServer(httpOpts HTTPServerOpts) *HTTPServer {
+func New(httpOpts HTTPServerOpts) *HTTPServer {
+	dbOpts := db.DBOpts{
+		Filename: "http_" + httpOpts.ListenAddress + ".db",
+	}
+	db := db.New(dbOpts)
+
 	return &HTTPServer{
 		HTTPServerOpts: httpOpts,
 
-		db:       httpOpts.DB,
-		httpAddr: httpOpts.HttpAddr,
+		db:       db,
+		httpAddr: httpOpts.ListenAddress,
 	}
 }
 
-func (server *HTTPServer) StartHttpServer() error {
+func (server *HTTPServer) Address() string {
+	return server.httpAddr
+}
+
+func (server *HTTPServer) Start() error {
 	go server.Listen()
 	return nil
 }
@@ -53,11 +61,12 @@ func (server *HTTPServer) Listen() {
 	mux := http.NewServeMux()
 
 	// Register handlers using HandleFunc (for simple functions)
-	mux.HandleFunc("GET /health", server.healthHandler)
-	mux.HandleFunc("PUT /{bucket}/{key}", validateURLParamsMiddleware(server.storeHandler, []string{"bucket", "key"}))
+	mux.HandleFunc("GET /health", setResHeaders(server.healthHandler))
+	mux.HandleFunc("PUT /{bucket}/{key}", setResHeaders(validateURLParamsMiddleware(server.storeHandler, []string{"bucket", "key"})))
+	// get handles setting its own content headers
 	mux.HandleFunc("GET /{bucket}/{key}", validateURLParamsMiddleware(server.getHandler, []string{"bucket", "key"}))
-	mux.HandleFunc("DELETE /{bucket}/{key}", validateURLParamsMiddleware(server.deleteHandler, []string{"bucket", "key"}))
-	mux.HandleFunc("GET /{bucket}", validateURLParamsMiddleware(server.listHandler, []string{"bucket"}))
+	mux.HandleFunc("DELETE /{bucket}/{key}", setResHeaders(validateURLParamsMiddleware(server.deleteHandler, []string{"bucket", "key"})))
+	mux.HandleFunc("GET /{bucket}", setResHeaders(validateURLParamsMiddleware(server.listHandler, []string{"bucket"})))
 
 	srv := &http.Server{
 		Addr:    server.httpAddr,

@@ -1,4 +1,4 @@
-package main
+package file_server
 
 // this is the internal per-node fileserver being invoked from inside the http server
 // implements main DFS functionality
@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/iAmAdheil/distributed-file-storage/p2p"
+	"github.com/iAmAdheil/distributed-file-storage/file_server/p2p"
 )
 
 type Message struct {
@@ -92,7 +92,7 @@ func (fServer *FileServer) Get(key string) (io.ReadCloser, error) {
 	for _, peer := range fServer.peers {
 		var fileSize int64
 		binary.Read(peer, binary.LittleEndian, &fileSize)
-		_, err := fServer.store.DWrite(fServer.EncKey, key, fServer.ID, io.LimitReader(peer, fileSize))
+		_, err := fServer.store.DWrite(fServer.encKey, key, fServer.ID, io.LimitReader(peer, fileSize))
 		if err != nil {
 			// return nil, err
 			continue
@@ -143,7 +143,8 @@ func (fServer *FileServer) Store(key string, r io.Reader) error {
 	if _, err := mw.Write([]byte{p2p.IncomingStreamByte}); err != nil {
 		return err
 	}
-	if _, err := copyEncrypt(fServer.EncKey, fileBuf, mw); err != nil {
+
+	if _, err := copyEncrypt(fServer.encKey, fileBuf, mw); err != nil {
 		return err
 	}
 
@@ -166,11 +167,7 @@ func (fServer *FileServer) Delete(key string) error {
 }
 
 type FileServerOpts struct {
-	StoreOpts
-
-	transport p2p.Transport
-
-	EncKey         []byte
+	ListenAddress  string
 	BootStrapNodes []string
 	ID             string
 }
@@ -178,28 +175,50 @@ type FileServerOpts struct {
 type FileServer struct {
 	FileServerOpts
 
-	store *Store
+	store     *Store
+	transport *p2p.TCPTransport
 
+	encKey   []byte
 	peerLock sync.Mutex
 	peers    map[string]p2p.Peer
 	quitch   chan struct{}
 }
 
-func NewFileServer(opts FileServerOpts) *FileServer {
+func New(opts FileServerOpts) *FileServer {
+	storeOpts := StoreOpts{
+		PathTransformFunc: CASPathTransformFunc,
+		Root:              opts.ListenAddress + "_network",
+	}
+	tcpTransportOpts := p2p.TCPTransportOpts{
+		ListenAddress: opts.ListenAddress,
+		Handshake:     p2p.NOPHandshakeFunc,
+		Decoder:       p2p.DefaultDecoder{},
+	}
+
+	tcpTransport := p2p.NewTCPTransport(tcpTransportOpts)
+
 	server := &FileServer{
 		FileServerOpts: opts,
 
-		store: NewStore(opts.StoreOpts),
+		store:     NewStore(storeOpts),
+		transport: tcpTransport,
 
+		encKey:   newEncryptionKey(),
 		peerLock: sync.Mutex{},
 		peers:    make(map[string]p2p.Peer),
 		quitch:   make(chan struct{}),
 	}
 
+	tcpTransport.OnPeer = server.OnPeer
+
 	return server
 }
 
-func (fServer *FileServer) StartFileServer() error {
+func (fServer *FileServer) Address() string {
+	return fServer.ListenAddress
+}
+
+func (fServer *FileServer) Start() error {
 	if err := fServer.transport.ListenAndAccept(); err != nil {
 		return err
 	}

@@ -20,3 +20,12 @@ func validateURLParamsMiddleware(next http.HandlerFunc, params []string) http.Ha
 		next.ServeHTTP(w, r)
 	})
 }
+
+func setResHeaders(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/xml")
+
+		// API key is valid, proceed to next handler
+		next.ServeHTTP(w, r)
+	})
+}
