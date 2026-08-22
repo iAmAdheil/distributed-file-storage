@@ -76,7 +76,6 @@ func (server *HTTPServer) storeHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("ETag", hex.EncodeToString(etag[:]))
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("File stored successfully."))
 }
 
 func (server *HTTPServer) getHandler(w http.ResponseWriter, r *http.Request) {
@@ -154,7 +153,6 @@ func (server *HTTPServer) getHandler(w http.ResponseWriter, r *http.Request) {
 
 	bw, err := io.Copy(w, br)
 	if err != nil {
-		// PHASE 2 ERROR: Streaming already started.
 		// w.WriteHeader() has already fired. We can only log this.
 		log.Printf("Error mid-stream after sending %d bytes: %v", bw, err)
 		return

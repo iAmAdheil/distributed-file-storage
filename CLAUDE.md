@@ -65,8 +65,13 @@ Saving is automatic — no need to ask permission each time. Mention briefly wha
   guessing. The user is optimising for **learning and competency** — they want to
   understand and defend every design choice, not just receive working code.
 - Verify references against real sources (papers, official docs) before citing them.
-- Route mid-coding doubts to the `dfs-guide` subagent (Socratic, read-only — it guides
-  rather than answers). Route post-commit Go quality review to `go-mentor` (hand it a
-  commit hash).
+- Mid-coding doubts → the `dfs-guide` **skill** (`/dfs-guide`). It loads Socratic guide
+  mode into this session rather than spawning a subagent, because clearing a doubt is a
+  back-and-forth: it hints, hands the turn back, and escalates only if you're still stuck.
+  While it's active the assistant will not write the code for the step you're on. It
+  releases on an explicit "just tell me" or as soon as you move to a different task.
+- Post-commit Go quality review → the `go-mentor` **subagent** (hand it a commit hash).
+  Stays a subagent on purpose: it's a one-shot report over a large read-only pile (`git
+  show`, `git grep`, files-at-commit), and that bulk is better kept out of this context.
 - Code quality convention (`notes.md`): important things at the top of a file, basic
   helper functions at the bottom.
