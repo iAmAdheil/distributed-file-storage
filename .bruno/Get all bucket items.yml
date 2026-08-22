@@ -5,11 +5,12 @@ info:
 
 http:
   method: GET
-  url: http://localhost:8001/:bucket?prefix=test
+  url: http://localhost:8001/:bucket
   params:
     - name: prefix
       value: test
       type: query
+      disabled: true
     - name: max-keys
       value: "2"
       type: query

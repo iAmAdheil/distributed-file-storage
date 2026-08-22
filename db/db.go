@@ -129,9 +129,6 @@ func (db *DB) ListMeta(Bucket string, params ListMetaParams) (*ListMetaRes, erro
 		}
 
 		count := params.MaxKeys
-		if count <= 0 {
-			count = 1000 // sane limit
-		}
 
 		cursor := bucket.Cursor()
 		// set up the starting pos, while also adding it

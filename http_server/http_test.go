@@ -25,9 +25,9 @@ func TestXMLRes(t *testing.T) {
 	}
 
 	res := listhandlerRes{
-		Objects:     lmres.List,
-		IsTruncated: true,
-		ContToken:   lmres.ContToken,
+		Objects:   lmres.List,
+		IsTrunc:   true,
+		ContToken: lmres.ContToken,
 	}
 
 	output, err := xml.MarshalIndent(res, "", "  ")

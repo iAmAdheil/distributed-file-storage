@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"crypto/md5"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -213,9 +213,16 @@ func (server *HTTPServer) deleteHandler(w http.ResponseWriter, r *http.Request) 
 }
 
 type listhandlerRes struct {
-	Objects     []model.Metadata `json:"objects"`
-	IsTruncated bool             `json:"is_truncated"`
-	ContToken   string           `json:"continuation_token"`
+	XMLName xml.Name `xml:"ListBucketResult"`
+
+	Name      string `xml:"Name"`
+	Prefix    string `xml:"Prefix,omitempty"`
+	KeyCount  string `xml:"KeyCount"`
+	MaxKeys   string `xml:"MaxKeys"`
+	IsTrunc   bool   `xml:"IsTruncated"`
+	ContToken string `xml:"ContinuationToken,omitempty"`
+
+	Objects []model.Metadata `xml:"Contents"`
 }
 
 func (server *HTTPServer) listHandler(w http.ResponseWriter, r *http.Request) {
@@ -223,7 +230,8 @@ func (server *HTTPServer) listHandler(w http.ResponseWriter, r *http.Request) {
 	prefix := r.URL.Query().Get("prefix")
 	maxKeys, err := strconv.Atoi(r.URL.Query().Get("max-keys"))
 	if err != nil {
-		maxKeys = -1
+		// set default max keys
+		maxKeys = 1000
 	}
 	contToken := r.URL.Query().Get("continuation-token")
 
@@ -258,7 +266,16 @@ func (server *HTTPServer) listHandler(w http.ResponseWriter, r *http.Request) {
 		isTrunc = true
 	}
 
-	if err := json.NewEncoder(w).Encode(listhandlerRes{Objects: res.List, IsTruncated: isTrunc, ContToken: res.ContToken}); err != nil {
+	if err := xml.NewEncoder(w).Encode(listhandlerRes{
+		Name:      bucket,
+		Prefix:    prefix,
+		KeyCount:  strconv.FormatInt(int64(len(res.List)), 10),
+		MaxKeys:   strconv.FormatInt(int64(maxKeys), 10),
+		IsTrunc:   isTrunc,
+		ContToken: res.ContToken,
+
+		Objects: res.List,
+	}); err != nil {
 		fmt.Printf("Error when encoding list items: %s\n", err.Error())
 	}
 }
