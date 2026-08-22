@@ -6,6 +6,9 @@ info:
 http:
   method: GET
   url: http://localhost:8001/:bucket/:key
+  headers:
+    - name: If-None-Match
+      value: e07ff41a486c27c095a15898dcca34d1
   params:
     - name: bucket
       value: my-bucket

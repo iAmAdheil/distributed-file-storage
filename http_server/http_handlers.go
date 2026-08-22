@@ -63,6 +63,10 @@ func (server *HTTPServer) storeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// compute etag on content hash, encode to string
+	etag := hex.EncodeToString(chash.Sum(nil)[:])
+	fileMetadata.ETag = etag
+
 	if err := server.db.PutMeta(fileMetadata); err != nil {
 		// best effort in case put meta fails
 		server.Internal.Delete(pathkey)
@@ -72,9 +76,7 @@ func (server *HTTPServer) storeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	etag := chash.Sum(nil)
-
-	w.Header().Set("ETag", hex.EncodeToString(etag[:]))
+	w.Header().Set("ETag", etag)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -106,6 +108,12 @@ func (server *HTTPServer) getHandler(w http.ResponseWriter, r *http.Request) {
 
 		s3errOpts.Msg = "File metadata could not be retrieved"
 		WriteS3Err(w, http.StatusInternalServerError, "InternalError", s3errOpts)
+		return
+	}
+
+	if noneMatch := r.Header.Get("If-None-Match"); noneMatch == md.ETag {
+		w.Header().Set("ETag", md.ETag)
+		w.WriteHeader(http.StatusNotModified)
 		return
 	}
 
@@ -145,6 +153,7 @@ func (server *HTTPServer) getHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	w.Header().Set("ETag", md.ETag)
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Length", strconv.FormatInt(md.Size, 10))
 	w.Header().Set("Last-Modified", md.CreatedAt.UTC().Format(http.TimeFormat))

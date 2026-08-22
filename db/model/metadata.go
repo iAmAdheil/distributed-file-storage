@@ -7,6 +7,7 @@ import (
 )
 
 type Metadata struct {
+	ETag        string    `json:"etag"`
 	Bucket      string    `json:"bucket"`
 	Key         string    `json:"key"`
 	Size        int64     `json:"size"`
