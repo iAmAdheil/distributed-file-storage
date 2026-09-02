@@ -3,16 +3,16 @@ package model
 import (
 	"bytes"
 	"encoding/gob"
-	"time"
 )
 
 type Metadata struct {
-	ETag        string    `xml:"ETag"`
-	Bucket      string    `xml:"-"`
-	Key         string    `xml:"Key"`
-	Size        int64     `xml:"Size"`
-	ContentType string    `xml:"ContentType"`
-	CreatedAt   time.Time `xml:"CreatedAt"`
+	ETag         string `xml:"ETag"`
+	Bucket       string `xml:"-"`
+	Key          string `xml:"Key"`
+	Size         int64  `xml:"Size"`
+	ContentType  string `xml:"-"`
+	CreatedAt    string `xml:"-"`
+	LastModified string `xml:"LastModified"`
 }
 
 func (md *Metadata) Encode(buf *bytes.Buffer) error {

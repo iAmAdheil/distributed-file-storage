@@ -112,13 +112,13 @@ type ListMetaParams struct {
 }
 
 type ListMetaRes struct {
-	List      []model.Metadata
-	ContToken string
+	List          []model.Metadata
+	NextContToken string
 }
 
 func (db *DB) ListMeta(Bucket string, params ListMetaParams) (*ListMetaRes, error) {
 	list := []model.Metadata{}
-	contToken := ""
+	nextContToken := ""
 
 	err := db.in.View(func(tx *bolt.Tx) error {
 		bname := []byte(Bucket)
@@ -136,22 +136,22 @@ func (db *DB) ListMeta(Bucket string, params ListMetaParams) (*ListMetaRes, erro
 		var v []byte
 		t := []byte(params.ContToken)
 		if len(params.ContToken) > 0 {
-			k, v = cursor.Seek(t)
+			cursor.Seek(t)
 		} else {
 			k, v = cursor.First()
-		}
-		if len(v) > 0 && strings.HasPrefix(string(k), params.Prefix) {
-			var md model.Metadata
-			if err := (&md).Decode(v); err != nil {
-				return err
+			if count > 0 && len(v) > 0 && strings.HasPrefix(string(k), params.Prefix) {
+				var md model.Metadata
+				if err := (&md).Decode(v); err != nil {
+					return err
+				}
+				list = append(list, md)
+				count--
 			}
-			list = append(list, md)
-			count--
 		}
 
 		for {
 			k, v := cursor.Next()
-			if k == nil || v == nil {
+			if count == 0 || k == nil || v == nil {
 				break
 			}
 
@@ -163,32 +163,25 @@ func (db *DB) ListMeta(Bucket string, params ListMetaParams) (*ListMetaRes, erro
 				continue
 			}
 
-			// track if elements after last entry still have same prefix
-			if count == 0 {
-				if len(list) > 0 {
-					last := list[len(list)-1]
-					contToken = last.Key
-				}
-				break
+			var md model.Metadata
+			if err := (&md).Decode(v); err != nil {
+				return err
 			}
+			list = append(list, md)
+			count--
+		}
 
-			// never add elements once max keys = 0
-			if count > 0 {
-				var md model.Metadata
-				if err := (&md).Decode(v); err != nil {
-					return err
-				}
-				list = append(list, md)
-				count--
-			}
+		k, v = cursor.Next()
+		if k != nil && v != nil && len(k) > 0 && len(v) > 0 {
+			nextContToken = string(k)
 		}
 
 		return nil
 	})
 
 	res := &ListMetaRes{
-		List:      list,
-		ContToken: contToken,
+		List:          list,
+		NextContToken: nextContToken,
 	}
 
 	return res, err

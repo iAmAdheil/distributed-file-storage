@@ -2,6 +2,7 @@ package db
 
 import (
 	"fmt"
+	"net/http"
 	"strconv"
 	"testing"
 	"time"
@@ -19,7 +20,7 @@ func TestDB(t *testing.T) {
 		Key:         "testkey",
 		Size:        100,
 		ContentType: "text",
-		CreatedAt:   time.Now(),
+		CreatedAt:   time.Now().UTC().Format(http.TimeFormat),
 	}
 
 	db := New(*dbOpts)
@@ -52,7 +53,7 @@ func TestListMeta(t *testing.T) {
 			Key:         "testkey_" + strconv.Itoa(i),
 			Size:        100,
 			ContentType: "text",
-			CreatedAt:   time.Now(),
+			CreatedAt:   time.Now().UTC().Format(http.TimeFormat),
 		}
 		if err := db.PutMeta(testMd); err != nil {
 			t.Errorf("Adding the object failed: %s\n", err.Error())
@@ -68,7 +69,7 @@ func TestListMeta(t *testing.T) {
 	}
 
 	fmt.Printf("List items: %v\n", res.List)
-	fmt.Println("Continuation token:", res.ContToken)
+	fmt.Println("Next continuation token:", res.NextContToken)
 
 	for i := 0; i < 10; i++ {
 		if err := db.DeleteMeta("testbucket", "testkey_"+strconv.Itoa(i)); err != nil {

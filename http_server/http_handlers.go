@@ -36,30 +36,34 @@ func (server *HTTPServer) storeHandler(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, MAX_FILE_SIZE)
 
 	fileMetadata := &model.Metadata{
-		Bucket:      bucket,
-		Key:         key,
-		Size:        r.ContentLength,
-		ContentType: r.Header.Get("Content-Type"),
-		CreatedAt:   time.Now(),
+		Bucket:       bucket,
+		Key:          key,
+		Size:         r.ContentLength,
+		ContentType:  r.Header.Get("Content-Type"),
+		CreatedAt:    time.Now().UTC().Format(http.TimeFormat),
+		LastModified: time.Now().UTC().Format(http.TimeFormat),
 	}
 
 	// stores the content hash for etag
 	chash := md5.New()
 
 	s3errOpts := &s3ErrOpts{
-		Bucket: bucket,
-		Key:    key,
+		Bucket:   bucket,
+		Key:      key,
+		Resource: r.URL.Path,
 	}
 
 	if err := server.Internal.Store(pathkey, io.TeeReader(r.Body, chash)); err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
-			WriteS3Err(w, http.StatusRequestEntityTooLarge, "EntityTooLarge", s3errOpts)
+			s3errOpts.Code = "EntityTooLarge"
+			WriteS3Err(w, http.StatusRequestEntityTooLarge, s3errOpts)
 			return
 		}
 
 		s3errOpts.Msg = "An error occured while storing the file"
-		WriteS3Err(w, http.StatusInternalServerError, "InternalError", s3errOpts)
+		s3errOpts.Code = "InternalError"
+		WriteS3Err(w, http.StatusInternalServerError, s3errOpts)
 		return
 	}
 
@@ -72,7 +76,8 @@ func (server *HTTPServer) storeHandler(w http.ResponseWriter, r *http.Request) {
 		server.Internal.Delete(pathkey)
 
 		s3errOpts.Msg = "An error occured while storing file metadata"
-		WriteS3Err(w, http.StatusInternalServerError, "InternalError", s3errOpts)
+		s3errOpts.Code = "InternalError"
+		WriteS3Err(w, http.StatusInternalServerError, s3errOpts)
 		return
 	}
 
@@ -86,8 +91,9 @@ func (server *HTTPServer) getHandler(w http.ResponseWriter, r *http.Request) {
 	pathkey := bucket + "/" + key
 
 	s3errOpts := &s3ErrOpts{
-		Bucket: bucket,
-		Key:    key,
+		Bucket:   bucket,
+		Key:      key,
+		Resource: r.URL.Path,
 	}
 
 	md, err := server.db.GetMeta(bucket, key)
@@ -95,19 +101,22 @@ func (server *HTTPServer) getHandler(w http.ResponseWriter, r *http.Request) {
 		var bnf *db.BucketNotFound
 		if errors.As(err, &bnf) {
 			s3errOpts.Msg = err.Error()
-			WriteS3Err(w, http.StatusNotFound, "NoSuchBucket", s3errOpts)
+			s3errOpts.Code = "NoSuchBucket"
+			WriteS3Err(w, http.StatusNotFound, s3errOpts)
 			return
 		}
 
 		var knf *db.KeyNotFound
 		if errors.As(err, &knf) {
 			s3errOpts.Msg = err.Error()
-			WriteS3Err(w, http.StatusNotFound, "NoSuchKey", s3errOpts)
+			s3errOpts.Code = "NoSuchKey"
+			WriteS3Err(w, http.StatusNotFound, s3errOpts)
 			return
 		}
 
 		s3errOpts.Msg = "File metadata could not be retrieved"
-		WriteS3Err(w, http.StatusInternalServerError, "InternalError", s3errOpts)
+		s3errOpts.Code = "InternalError"
+		WriteS3Err(w, http.StatusInternalServerError, s3errOpts)
 		return
 	}
 
@@ -124,12 +133,14 @@ func (server *HTTPServer) getHandler(w http.ResponseWriter, r *http.Request) {
 		var pathErr *os.PathError
 		if errors.As(err, &pathErr) {
 			s3errOpts.Msg = "File not found"
-			WriteS3Err(w, http.StatusNotFound, "InternalError", s3errOpts)
+			s3errOpts.Code = "InternalError"
+			WriteS3Err(w, http.StatusNotFound, s3errOpts)
 			return
 		}
 
 		s3errOpts.Msg = "File could not be retrieved"
-		WriteS3Err(w, http.StatusInternalServerError, "InternalError", s3errOpts)
+		s3errOpts.Code = "InternalError"
+		WriteS3Err(w, http.StatusInternalServerError, s3errOpts)
 		return
 	}
 	defer cr.Close()
@@ -145,7 +156,8 @@ func (server *HTTPServer) getHandler(w http.ResponseWriter, r *http.Request) {
 			pb, err := br.Peek(512) // peek bytes
 			if err != nil && err != io.EOF {
 				s3errOpts.Msg = "File mimetype/extension could not be deciphered"
-				WriteS3Err(w, http.StatusInternalServerError, "InternalError", s3errOpts)
+				s3errOpts.Code = "InternalError"
+				WriteS3Err(w, http.StatusInternalServerError, s3errOpts)
 				return
 			}
 
@@ -156,7 +168,7 @@ func (server *HTTPServer) getHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("ETag", md.ETag)
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Length", strconv.FormatInt(md.Size, 10))
-	w.Header().Set("Last-Modified", md.CreatedAt.UTC().Format(http.TimeFormat))
+	w.Header().Set("Last-Modified", md.CreatedAt)
 
 	w.WriteHeader(http.StatusOK)
 
@@ -174,8 +186,9 @@ func (server *HTTPServer) deleteHandler(w http.ResponseWriter, r *http.Request) 
 	pathkey := bucket + "/" + key
 
 	s3errOpts := &s3ErrOpts{
-		Bucket: bucket,
-		Key:    key,
+		Bucket:   bucket,
+		Key:      key,
+		Resource: r.URL.Path,
 	}
 
 	_, err := server.db.GetMeta(bucket, key)
@@ -183,25 +196,29 @@ func (server *HTTPServer) deleteHandler(w http.ResponseWriter, r *http.Request) 
 		var bnf *db.BucketNotFound
 		if errors.As(err, &bnf) {
 			s3errOpts.Msg = err.Error()
-			WriteS3Err(w, http.StatusNotFound, "NoSuchBucket", s3errOpts)
+			s3errOpts.Code = "NoSuchBucket"
+			WriteS3Err(w, http.StatusNotFound, s3errOpts)
 			return
 		}
 
 		var knf *db.KeyNotFound
 		if errors.As(err, &knf) {
 			s3errOpts.Msg = err.Error()
-			WriteS3Err(w, http.StatusNotFound, "NoSuchKey", s3errOpts)
+			s3errOpts.Code = "NoSuchKey"
+			WriteS3Err(w, http.StatusNotFound, s3errOpts)
 			return
 		}
 
 		s3errOpts.Msg = "File metadata could not be retrieved"
-		WriteS3Err(w, http.StatusInternalServerError, "InternalError", s3errOpts)
+		s3errOpts.Code = "InternalError"
+		WriteS3Err(w, http.StatusInternalServerError, s3errOpts)
 		return
 	}
 
 	if err := server.Internal.Delete(pathkey); err != nil {
 		s3errOpts.Msg = "File not found"
-		WriteS3Err(w, http.StatusNotFound, "InternalError", s3errOpts)
+		s3errOpts.Code = "InternalError"
+		WriteS3Err(w, http.StatusNotFound, s3errOpts)
 		return
 	}
 
@@ -215,12 +232,13 @@ func (server *HTTPServer) deleteHandler(w http.ResponseWriter, r *http.Request) 
 type listhandlerRes struct {
 	XMLName xml.Name `xml:"ListBucketResult"`
 
-	Name      string `xml:"Name"`
-	Prefix    string `xml:"Prefix,omitempty"`
-	KeyCount  string `xml:"KeyCount"`
-	MaxKeys   string `xml:"MaxKeys"`
-	IsTrunc   bool   `xml:"IsTruncated"`
-	ContToken string `xml:"ContinuationToken,omitempty"`
+	Name          string `xml:"Name"`
+	Prefix        string `xml:"Prefix"`
+	KeyCount      string `xml:"KeyCount"`
+	MaxKeys       string `xml:"MaxKeys"`
+	IsTrunc       bool   `xml:"IsTruncated"`
+	NextContToken string `xml:"NextContinuationToken,omitempty"`
+	ContToken     string `xml:"ContinuationToken,omitempty"`
 
 	Objects []model.Metadata `xml:"Contents"`
 }
@@ -242,7 +260,8 @@ func (server *HTTPServer) listHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s3errOpts := &s3ErrOpts{
-		Bucket: bucket,
+		Bucket:   bucket,
+		Resource: r.URL.Path,
 	}
 
 	res, err := server.db.ListMeta(bucket, params)
@@ -250,29 +269,32 @@ func (server *HTTPServer) listHandler(w http.ResponseWriter, r *http.Request) {
 		var bnf *db.BucketNotFound
 		if errors.As(err, &bnf) {
 			s3errOpts.Msg = err.Error()
-			WriteS3Err(w, http.StatusNotFound, "NoSuchBucket", s3errOpts)
+			s3errOpts.Code = "NoSuchBucket"
+			WriteS3Err(w, http.StatusNotFound, s3errOpts)
 			return
 		}
 
 		s3errOpts.Msg = "Failed to fetch bucket items"
-		WriteS3Err(w, http.StatusInternalServerError, "InternalError", s3errOpts)
+		s3errOpts.Code = "InternalError"
+		WriteS3Err(w, http.StatusInternalServerError, s3errOpts)
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
 
 	isTrunc := false
-	if len(res.ContToken) > 0 {
+	if len(res.NextContToken) > 0 {
 		isTrunc = true
 	}
 
 	if err := xml.NewEncoder(w).Encode(listhandlerRes{
-		Name:      bucket,
-		Prefix:    prefix,
-		KeyCount:  strconv.FormatInt(int64(len(res.List)), 10),
-		MaxKeys:   strconv.FormatInt(int64(maxKeys), 10),
-		IsTrunc:   isTrunc,
-		ContToken: res.ContToken,
+		Name:          bucket,
+		Prefix:        prefix,
+		KeyCount:      strconv.FormatInt(int64(len(res.List)), 10),
+		MaxKeys:       strconv.FormatInt(int64(maxKeys), 10),
+		IsTrunc:       isTrunc,
+		ContToken:     contToken,
+		NextContToken: res.NextContToken,
 
 		Objects: res.List,
 	}); err != nil {
